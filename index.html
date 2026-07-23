@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Il Costo · Amorino</title>
+
+    <!-- React + ReactDOM (producción) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- SheetJS: lee archivos .xls / .xlsx directamente en el navegador -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin></script>
+    <!-- Babel standalone: transpila el JSX de abajo directamente en el navegador, sin paso de build -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" crossorigin></script>
+  </head>
+  <body style="margin:0;">
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect, useCallback } = React;
+
+// ---------------------------------------------------------------------------
+// Datos base: escandallos (ratio de coste = coste / precio de venta)
+// ---------------------------------------------------------------------------
+const ESCANDALLOS_BASE = [
+  { producto: "Té", ratio: 0.1355 },
+  { producto: "Choco-Cono normale", ratio: 0.1363 },
+  { producto: "Choco-Cono piccolo", ratio: 0.1453 },
+  { producto: "Sorbet Drink", ratio: 0.1475 },
+  { producto: "Agua", ratio: 0.1671 },
+  { producto: "Americano Piccolo", ratio: 0.1675 },
+  { producto: "Cappuccino Piccolo", ratio: 0.1693 },
+  { producto: "Milkshake", ratio: 0.1745 },
+  { producto: "Vegan Shake", ratio: 0.1795 },
+  { producto: "Affogato al Caffè", ratio: 0.1871 },
+  { producto: "Sticks de Gofre", ratio: 0.1973 },
+  { producto: "Cortado", ratio: 0.1981 },
+  { producto: "Macchiato", ratio: 0.1981 },
+  { producto: "Affogato al Caffè Gourmet", ratio: 0.1996 },
+  { producto: "Topping Nata", ratio: 0.2 },
+  { producto: "Topping Nata Caffetteria", ratio: 0.2 },
+  { producto: "Americano Grande", ratio: 0.2037 },
+  { producto: "Milkshake Gourmet", ratio: 0.2081 },
+  { producto: "Topping Gianduja", ratio: 0.2112 },
+  { producto: "Cappuccino Grande", ratio: 0.213 },
+  { producto: "Cappuccino Medio", ratio: 0.221 },
+  { producto: "Chocolate Caliente", ratio: 0.2236 },
+  { producto: "Espresso Normale", ratio: 0.2237 },
+  { producto: "Espresso Ristretto", ratio: 0.2237 },
+  { producto: "Chocolate Caliente Gourmet", ratio: 0.2244 },
+  { producto: "GOFRE Azucar", ratio: 0.2246 },
+  { producto: "Leche Vegetal (base de otra bebida)", ratio: 0.2269 },
+  { producto: "Caffè Latte Piccolo", ratio: 0.2335 },
+  { producto: "Topping Caramello", ratio: 0.2338 },
+  { producto: "Topping Cioccolato", ratio: 0.2338 },
+  { producto: "Topping Dulce de Leche", ratio: 0.2338 },
+  { producto: "Espresso Doppio", ratio: 0.2382 },
+  { producto: "CREP Azucar", ratio: 0.2404 },
+  { producto: "Choco-Cono grande", ratio: 0.242 },
+  { producto: "Espresso Frappè", ratio: 0.2436 },
+  { producto: "Macaron Grandioso", ratio: 0.2438 },
+  { producto: "GOFRE Caramello", ratio: 0.2473 },
+  { producto: "GOFRE Cioccolato", ratio: 0.2473 },
+  { producto: "GOFRE Dulce de Leche", ratio: 0.2473 },
+  { producto: "GOFRE Gianduja", ratio: 0.2473 },
+  { producto: "Americano Medio con Hielo", ratio: 0.2483 },
+  { producto: "Americano Medio", ratio: 0.2492 },
+  { producto: "Caffè Latte Grande", ratio: 0.2548 },
+  { producto: "Latte Macchiato Piccolo", ratio: 0.2555 },
+  { producto: "CREP Caramello", ratio: 0.2599 },
+  { producto: "CREP Cioccolato", ratio: 0.2599 },
+  { producto: "CREP Deliziosa", ratio: 0.2599 },
+  { producto: "CREP Dulce de Leche", ratio: 0.2599 },
+  { producto: "CREP Gianduja", ratio: 0.2599 },
+  { producto: "COPPA Infantil", ratio: 0.2614 },
+  { producto: "Sticks de Gofre Imprescindible", ratio: 0.2629 },
+  { producto: "Refresco", ratio: 0.264 },
+  { producto: "Affogato al Cioccolato", ratio: 0.2655 },
+  { producto: "1/2 LITRO", ratio: 0.2658 },
+  { producto: "Agua con Gas", ratio: 0.2662 },
+  { producto: "CONO Piccolo", ratio: 0.2664 },
+  { producto: "Croissant de Mantequilla", ratio: 0.2674 },
+  { producto: "Latte Caramello", ratio: 0.2675 },
+  { producto: "Latte Dulce Leche", ratio: 0.2675 },
+  { producto: "Latte Gianduja", ratio: 0.2675 },
+  { producto: "Latte Pistacchio", ratio: 0.2675 },
+  { producto: 'Coppa Gourmet "a tu gusto"', ratio: 0.2676 },
+  { producto: "Coppa Gourmet Caramello y Vaniglia", ratio: 0.2676 },
+  { producto: "Coppa Gourmet Limone e Fragola", ratio: 0.2676 },
+  { producto: "Coppa Gourmet Vaniglia e Inimitabile", ratio: 0.2676 },
+  { producto: "Bliss Box", ratio: 0.2696 },
+  { producto: "CONO Infantil", ratio: 0.2748 },
+  { producto: "Caffè Latte Medio", ratio: 0.2749 },
+  { producto: "COPPA Classica", ratio: 0.2755 },
+  { producto: "GOFRE Tradizionale", ratio: 0.2769 },
+  { producto: "COPPA Grandissima", ratio: 0.278 },
+  { producto: "Latte Macchiato Grande", ratio: 0.2798 },
+  { producto: "Vaso Leche", ratio: 0.2806 },
+  { producto: "COPPA Grande", ratio: 0.2851 },
+  { producto: "CONO Classico", ratio: 0.2862 },
+  { producto: "COPPA Piccola", ratio: 0.2866 },
+  { producto: "CREP La Tradizionale", ratio: 0.2874 },
+  { producto: "Topping Crocante Avellanas", ratio: 0.289 },
+  { producto: "Napolitana al Chocolate", ratio: 0.2903 },
+  { producto: "GOFRE Gelato", ratio: 0.2915 },
+  { producto: "GOFRE Delizioso", ratio: 0.2979 },
+  { producto: "CREP Gelato", ratio: 0.3019 },
+  { producto: "Latte Macchiato Medio", ratio: 0.306 },
+  { producto: "CONO Grande", ratio: 0.3102 },
+  { producto: "1 LITRO", ratio: 0.3207 },
+  { producto: "GOFRE Perfetto", ratio: 0.3229 },
+  { producto: "CREP Perfetto", ratio: 0.3298 },
+  { producto: "Topping Pistacchio", ratio: 0.3361 },
+  { producto: "Choco-Coppa", ratio: 0.3487 },
+  { producto: "Macaron Gelato Unidad", ratio: 0.363 },
+  { producto: "Lata Wafer al Gianduja", ratio: 0.3713 },
+  { producto: "Cookie Chocolate", ratio: 0.3798 },
+  { producto: 'COPPA "A compartir"', ratio: 0.3839 },
+  { producto: "Cake Almendras y Limón", ratio: 0.3926 },
+  { producto: "Cake Banana y Nueces", ratio: 0.3926 },
+  { producto: "Cake Chocolate", ratio: 0.3926 },
+  { producto: "Cake Irresistible Zanahoria", ratio: 0.3926 },
+  { producto: "Cake Zanahoria", ratio: 0.3926 },
+  { producto: "Cake Irresistible Limón y Almendras", ratio: 0.3926 },
+  { producto: "Dúo Box", ratio: 0.3949 },
+  { producto: "Cofre 12 Macarons Gelato", ratio: 0.4152 },
+  { producto: "Rulo Helado", ratio: 0.4219 },
+  { producto: "Porción Panettone", ratio: 0.4452 },
+  { producto: "Gianduiotto 3 unidades", ratio: 0.4692 },
+  { producto: "Gianduiotto", ratio: 0.4725 },
+  { producto: "Cofre 12 Macarons Tradicional", ratio: 0.5126 },
+  { producto: "Tarta Amarena", ratio: 0.5371 },
+  { producto: "Tarta Cioccolato", ratio: 0.5371 },
+  { producto: "Tarta Limón y Almendras", ratio: 0.5371 },
+  { producto: "Tarta Pera e Gianduia", ratio: 0.5371 },
+  { producto: "Cofre 12 Gianduiotti", ratio: 0.5908 },
+  { producto: "Bolsa Isotérmica 1/2L", ratio: 0.6512 },
+  { producto: "Bolsa Isotérmica 1 L", ratio: 0.7744 },
+  { producto: "Espátula Amorino", ratio: 0.8556 },
+];
+
+// Alias -> nombre canónico del escandallo (reglas confirmadas en el análisis 2025)
+const ALIASES = {
+  "refresco pet": "Refresco",
+  "batido": "Milkshake",
+  "waferino": "Lata Wafer al Gianduja",
+  "zumo naranja": "Refresco",
+  "surtido biscotti (90 g)": "Croissant de Mantequilla",
+  "surtido biscotti": "Croissant de Mantequilla",
+  "cafe con hielo": "Espresso Normale",
+  "panettone classico 750gr": "Porción Panettone",
+  "panettone classico": "Porción Panettone",
+  "tarta irresistible amarena": "Tarta Amarena",
+  "tarta irresistible chocolate": "Tarta Cioccolato",
+  "tarta irresistible gianduja y pera": "Tarta Pera e Gianduia",
+  "tarta irresistible limon y almendras": "Tarta Limón y Almendras",
+  "leche de avena": "Leche Vegetal (base de otra bebida)",
+  "leche de soja": "Leche Vegetal (base de otra bebida)",
+  "leche entera": "Leche Vegetal (base de otra bebida)",
+  "leche desnatada": "Leche Vegetal (base de otra bebida)",
+  "leche sin lactosa": "Leche Vegetal (base de otra bebida)",
+  "brioche caramello": "GOFRE Caramello",
+  "brioche cioccolato": "GOFRE Cioccolato",
+  "brioche delizioso": "GOFRE Delizioso",
+  "brioche dulce de leche": "GOFRE Dulce de Leche",
+  "brioche gelato": "GOFRE Gelato",
+  "brioche gianduja": "GOFRE Gianduja",
+  "brioche tradizionale": "GOFRE Tradizionale",
+  "cake irresistible banana y nueces": "Cake Banana y Nueces",
+  "cake irresistible chocolate": "Cake Chocolate",
+  "chocolate caliente vegano": "Chocolate Caliente",
+  "cofre 2 unid. macaron grandioso": "Macaron Grandioso",
+  "cofre 2 unid macaron grandioso": "Macaron Grandioso",
+  "3 gianduiotti al gelato": "Gianduiotto 3 unidades",
+  "cofre 12 gianduiotti al gelato": "Cofre 12 Gianduiotti",
+  "gianduiotto al gelato": "Gianduiotto",
+};
+
+// ---------------------------------------------------------------------------
+// Utilidades
+// ---------------------------------------------------------------------------
+const normalize = (s) =>
+  (s || "")
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/["“”]/g, '"')
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+const parseNumber = (raw) => {
+  if (raw === undefined || raw === null) return null;
+  let s = raw.toString().trim().replace(/[€\s]/g, "");
+  if (s === "" || s === "-" ) return null;
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+  if (hasComma && hasDot) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else if (hasComma && !hasDot) {
+    s = s.replace(",", ".");
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+};
+
+const fmtEUR = (v) =>
+  (v ?? 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+const fmtNum = (v) => Math.round(v ?? 0).toLocaleString("es-ES");
+const fmtPct = (v) =>
+  v === null || v === undefined || isNaN(v)
+    ? "—"
+    : v.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + " %";
+
+const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda"];
+
+const TIENDAS = ["Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
+const MESES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+function splitLine(line) {
+  if (line.includes("\t")) return line.split("\t");
+  if (/ {2,}/.test(line)) return line.split(/ {2,}/);
+  return line.split(",");
+}
+
+// Fila con el layout completo del export de tienda:
+// NombreTienda, Categoria, SubCategoria, Producto, TipoIva, Ud, Base, Importe, Peso, Beneficio
+// Acepta tanto celdas de texto (pegado) como celdas ya numéricas (lectura de Excel).
+function extractFullFormatRow(cells) {
+  if (!cells || cells.length < 8) return null;
+  const producto = cells[3];
+  if (typeof producto !== "string" || !producto.trim()) return null;
+  const rawUd = cells[5];
+  const rawImporte = cells[7];
+  const unidades = typeof rawUd === "number" ? rawUd : parseNumber(rawUd);
+  const importe = typeof rawImporte === "number" ? rawImporte : parseNumber(rawImporte);
+  if (importe === null || importe < 0) return null;
+  return { producto: producto.trim(), unidades, importe };
+}
+
+function parseWorkbookRows(aoa) {
+  let rows = [];
+  let skipped = 0;
+  for (const cells of aoa) {
+    const r = extractFullFormatRow(cells);
+    if (r) rows.push(r);
+    else skipped++;
+  }
+  return { rows, skipped };
+}
+
+function parseSalesInput(text) {
+  const lines = text.split("\n").map((l) => l.replace(/\r/, "")).filter((l) => l.trim() !== "");
+  const rows = [];
+  let skipped = 0;
+  for (const line of lines) {
+    let cells = splitLine(line).map((c) => c.trim());
+
+    // Formato completo del export de tienda (10 columnas)
+    if (cells.length >= 9) {
+      const r = extractFullFormatRow(cells);
+      if (r) rows.push(r);
+      else skipped++;
+      continue;
+    }
+
+    // Formato simplificado: Producto, [Unidades,] Importe
+    cells = cells.filter((c, i) => !(i > 0 && c === "" && cells.length > 3));
+    if (cells.length < 2) { skipped++; continue; }
+    if (HEADER_WORDS.some((w) => normalize(cells[0]).includes(w))) { skipped++; continue; }
+
+    let producto, unidades = null, importe = null;
+    if (cells.length >= 3) {
+      producto = cells[0];
+      unidades = parseNumber(cells[1]);
+      importe = parseNumber(cells[cells.length - 1]);
+    } else {
+      producto = cells[0];
+      importe = parseNumber(cells[1]);
+    }
+    if (!producto || importe === null || importe < 0) { skipped++; continue; }
+    rows.push({ producto, unidades, importe });
+  }
+  return { rows, skipped };
+}
+
+// ---------------------------------------------------------------------------
+// Componente principal
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Almacenamiento persistente: localStorage del navegador (versión standalone).
+// En el artefacto de Claude.ai se usa window.storage; aquí, fuera de ese
+// entorno, usamos localStorage con la misma interfaz mínima que necesitamos.
+// ---------------------------------------------------------------------------
+const storage = {
+  async get(key) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      return raw === null ? null : { value: raw };
+    } catch (e) {
+      return null;
+    }
+  },
+  async set(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+      return { key, value };
+    } catch (e) {
+      return null;
+    }
+  },
+};
+
+function CosteTeoricoApp() {
+  const [rawInput, setRawInput] = useState("");
+  const [parsedRows, setParsedRows] = useState(null);
+  const [skippedCount, setSkippedCount] = useState(0);
+  const [selectedTienda, setSelectedTienda] = useState("");
+  const [selectedMes, setSelectedMes] = useState("");
+  const [tiendaWarning, setTiendaWarning] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const [fileError, setFileError] = useState("");
+  const [customAliases, setCustomAliases] = useState({});
+  const [ratioOverrides, setRatioOverrides] = useState({});
+  const [showEscandallos, setShowEscandallos] = useState(false);
+  const [escandalloFilter, setEscandalloFilter] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [saveNote, setSaveNote] = useState("");
+
+  // Cargar equivalencias y ajustes guardados
+  useEffect(() => {
+    (async () => {
+      try {
+        const a = await storage.get("il_costo_custom_aliases");
+        if (a && a.value) setCustomAliases(JSON.parse(a.value));
+      } catch (e) {}
+      try {
+        const r = await storage.get("il_costo_ratio_overrides");
+        if (r && r.value) setRatioOverrides(JSON.parse(r.value));
+      } catch (e) {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  const persistAliases = useCallback(async (next) => {
+    setCustomAliases(next);
+    try {
+      await storage.set("il_costo_custom_aliases", JSON.stringify(next));
+    } catch (e) {}
+  }, []);
+
+  const persistOverrides = useCallback(async (next) => {
+    setRatioOverrides(next);
+    try {
+      await storage.set("il_costo_ratio_overrides", JSON.stringify(next));
+    } catch (e) {}
+  }, []);
+
+  // Índice de escandallos por nombre normalizado (con overrides de ratio aplicados)
+  const escandalloIndex = useMemo(() => {
+    const idx = {};
+    for (const e of ESCANDALLOS_BASE) {
+      const ratio = ratioOverrides[e.producto] !== undefined ? ratioOverrides[e.producto] : e.ratio;
+      idx[normalize(e.producto)] = { producto: e.producto, ratio };
+    }
+    return idx;
+  }, [ratioOverrides]);
+
+  const resolveProduct = useCallback(
+    (nombre) => {
+      const n = normalize(nombre);
+      if (escandalloIndex[n]) return escandalloIndex[n];
+      if (customAliases[n] && escandalloIndex[normalize(customAliases[n])]) {
+        return escandalloIndex[normalize(customAliases[n])];
+      }
+      if (ALIASES[n] && escandalloIndex[normalize(ALIASES[n])]) {
+        return escandalloIndex[normalize(ALIASES[n])];
+      }
+      return null;
+    },
+    [escandalloIndex, customAliases]
+  );
+
+  const results = useMemo(() => {
+    if (!parsedRows) return null;
+    const rows = parsedRows.map((r) => {
+      const match = resolveProduct(r.producto);
+      const coste = match ? r.importe * match.ratio : null;
+      return {
+        ...r,
+        match,
+        ratioPct: match ? match.ratio * 100 : null,
+        coste,
+      };
+    });
+    rows.sort((a, b) => (b.importe || 0) - (a.importe || 0));
+    const totalImporte = rows.reduce((a, r) => a + (r.importe || 0), 0);
+    const matchedRows = rows.filter((r) => r.match);
+    const importeConCoste = matchedRows.reduce((a, r) => a + r.importe, 0);
+    const costeTotal = matchedRows.reduce((a, r) => a + r.coste, 0);
+    const cobertura = totalImporte > 0 ? (importeConCoste / totalImporte) * 100 : 0;
+    const ratioMedio = importeConCoste > 0 ? (costeTotal / importeConCoste) * 100 : null;
+    const unmatchedCount = rows.length - matchedRows.length;
+    return { rows, totalImporte, importeConCoste, costeTotal, cobertura, ratioMedio, unmatchedCount };
+  }, [parsedRows, resolveProduct]);
+
+  const handleCalcular = () => {
+    if (!selectedTienda) {
+      setTiendaWarning(true);
+      return;
+    }
+    setTiendaWarning(false);
+    setFileName("");
+    setFileError("");
+    const { rows, skipped } = parseSalesInput(rawInput);
+    setParsedRows(rows);
+    setSkippedCount(skipped);
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!selectedTienda) {
+      setTiendaWarning(true);
+      e.target.value = "";
+      return;
+    }
+    setTiendaWarning(false);
+    setFileError("");
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+      const { rows, skipped } = parseWorkbookRows(aoa);
+      if (rows.length === 0) {
+        setFileError("No se han encontrado filas válidas en el archivo. ¿Tiene el formato esperado (Tienda, Categoría, Subcategoría, Producto, IVA, Ud., Base, Importe, Peso, Beneficio)?");
+        e.target.value = "";
+        return;
+      }
+      setParsedRows(rows);
+      setSkippedCount(skipped);
+      setFileName(file.name);
+      setRawInput("");
+    } catch (err) {
+      setFileError("No se ha podido leer el archivo: " + err.message);
+    }
+    e.target.value = "";
+  };
+
+  const handleManualMap = async (productoOriginal, escandalloElegido) => {
+    const next = { ...customAliases, [normalize(productoOriginal)]: escandalloElegido };
+    await persistAliases(next);
+    setSaveNote(`Guardado: "${productoOriginal}" → "${escandalloElegido}"`);
+    setTimeout(() => setSaveNote(""), 2500);
+  };
+
+  const handleRatioEdit = async (producto, value) => {
+    const n = parseFloat(value);
+    const next = { ...ratioOverrides };
+    if (isNaN(n)) delete next[producto];
+    else next[producto] = n / 100;
+    await persistOverrides(next);
+  };
+
+  const filteredEscandallos = useMemo(() => {
+    const f = normalize(escandalloFilter);
+    return ESCANDALLOS_BASE.filter((e) => normalize(e.producto).includes(f)).sort(
+      (a, b) => a.ratio - b.ratio
+    );
+  }, [escandalloFilter]);
+
+  const ratioColor = (pct) => {
+    if (pct === null || pct === undefined) return "#9CA3AF";
+    if (pct < 25) return "#15803D";
+    if (pct < 40) return "#B45309";
+    return "#B91C1C";
+  };
+
+  return (
+    <div style={{ background: "#FAF6EF", minHeight: "100%", fontFamily: "'Inter', sans-serif", color: "#1F2937" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap');
+        .il-costo-display { font-family: 'Fraunces', serif; }
+        .il-costo-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+        .il-costo-scroll::-webkit-scrollbar-thumb { background: #E7DFD2; border-radius: 4px; }
+        input[type="text"]:focus, textarea:focus, select:focus { outline: 2px solid #B45309; outline-offset: 1px; }
+      `}</style>
+
+      <div style={{ maxWidth: 960, margin: "0 auto", padding: "36px 20px 60px" }}>
+        {/* Header */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ fontSize: 11, letterSpacing: "0.14em", fontWeight: 600, color: "#B45309", textTransform: "uppercase" }}>
+            Amorino · herramienta interna
+          </div>
+          <h1 className="il-costo-display" style={{ fontSize: 42, fontWeight: 700, margin: "6px 0 8px", color: "#1F2937", lineHeight: 1.05 }}>
+            Il Costo
+          </h1>
+          <p style={{ fontSize: 15, color: "#57534E", maxWidth: 560, lineHeight: 1.5, margin: 0 }}>
+            Pega las ventas del mes (producto, unidades, facturación) y calcula al instante cuál
+            debería ser tu coste de producto según los escandallos.
+          </p>
+        </div>
+
+        {/* Input */}
+        <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 24, boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}>
+          <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 200px" }}>
+              <label style={{ display: "block", fontWeight: 600, fontSize: 13, marginBottom: 5 }}>
+                Tienda <span style={{ color: "#B91C1C" }}>*</span>
+              </label>
+              <select
+                value={selectedTienda}
+                onChange={(e) => { setSelectedTienda(e.target.value); if (e.target.value) setTiendaWarning(false); }}
+                style={{
+                  width: "100%", boxSizing: "border-box", border: `1px solid ${tiendaWarning ? "#B91C1C" : "#E5E0D5"}`,
+                  borderRadius: 8, padding: "9px 10px", fontSize: 13.5, background: "#FFFDF9",
+                }}
+              >
+                <option value="">Selecciona tienda…</option>
+                {TIENDAS.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: "1 1 160px" }}>
+              <label style={{ display: "block", fontWeight: 600, fontSize: 13, marginBottom: 5 }}>Mes (opcional)</label>
+              <select
+                value={selectedMes}
+                onChange={(e) => setSelectedMes(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E0D5", borderRadius: 8, padding: "9px 10px", fontSize: 13.5, background: "#FFFDF9" }}
+              >
+                <option value="">Sin especificar</option>
+                {MESES.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+          {tiendaWarning && (
+            <div style={{ fontSize: 12.5, color: "#B91C1C", marginBottom: 12 }}>
+              Indica a qué tienda corresponden estos datos antes de calcular.
+            </div>
+          )}
+
+          <div style={{ marginBottom: 16 }}>
+            <label
+              htmlFor="il-costo-file-input"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer",
+                background: "#FEF3E7", border: "1px solid #F5D9AE", borderRadius: 9,
+                padding: "9px 16px", fontSize: 13.5, fontWeight: 600, color: "#92400E",
+              }}
+            >
+              📄 Cargar archivo .xls / .xlsx
+            </label>
+            <input
+              id="il-costo-file-input"
+              type="file"
+              accept=".xls,.xlsx"
+              onChange={handleFileUpload}
+              style={{ display: "none" }}
+            />
+            {fileName && <span style={{ marginLeft: 10, fontSize: 12.5, color: "#78716C" }}>{fileName} ✓</span>}
+            {fileError && <div style={{ fontSize: 12.5, color: "#B91C1C", marginTop: 6 }}>{fileError}</div>}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 0 16px", color: "#D6CFC0" }}>
+            <div style={{ flex: 1, height: 1, background: "#ECE4D6" }} />
+            <span style={{ fontSize: 11.5, color: "#B0A99A" }}>o pega los datos</span>
+            <div style={{ flex: 1, height: 1, background: "#ECE4D6" }} />
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+            <label style={{ fontWeight: 600, fontSize: 14 }}>Ventas del mes</label>
+            <span style={{ fontSize: 12, color: "#9CA3AF" }}>
+              Pega el export tal cual (Tienda, Categoría, Subcategoría, Producto, IVA, Ud., Base, Importe, Peso, Beneficio)
+              o solo Producto / Unidades / Importe.
+            </span>
+          </div>
+          <textarea
+            value={rawInput}
+            onChange={(e) => setRawInput(e.target.value)}
+            placeholder={"Producto\tUnidades\tImporte\nCOPPA Classica\t8118\t41252,10\nAgua\t3150\t6300,00\n..."}
+            rows={8}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              border: "1px solid #E5E0D5",
+              borderRadius: 10,
+              padding: "12px 14px",
+              fontFamily: "monospace",
+              fontSize: 13,
+              resize: "vertical",
+              background: "#FFFDF9",
+            }}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12 }}>
+            <button
+              onClick={handleCalcular}
+              disabled={!rawInput.trim()}
+              style={{
+                background: rawInput.trim() ? "#1F2937" : "#D1D5DB",
+                color: "white",
+                border: "none",
+                borderRadius: 9,
+                padding: "10px 22px",
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: rawInput.trim() ? "pointer" : "default",
+              }}
+            >
+              Calcular coste teórico
+            </button>
+            {parsedRows && (
+              <span style={{ fontSize: 12.5, color: "#78716C" }}>
+                {parsedRows.length} línea{parsedRows.length !== 1 ? "s" : ""} interpretada{parsedRows.length !== 1 ? "s" : ""}
+                {skippedCount > 0 ? ` · ${skippedCount} ignorada${skippedCount !== 1 ? "s" : ""} (cabecera/devoluciones)` : ""}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Resultados */}
+        {results && (
+          <>
+            <div style={{ fontSize: 13, color: "#78716C", marginBottom: 10 }}>
+              Resultados — <strong style={{ color: "#1F2937" }}>{selectedTienda}</strong>
+              {selectedMes ? <> · {selectedMes}</> : null}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 22 }}>
+              {[
+                ["Facturación total", fmtEUR(results.totalImporte)],
+                ["Coste teórico", fmtEUR(results.costeTotal)],
+                ["Ratio de coste medio", fmtPct(results.ratioMedio)],
+                ["Cobertura de escandallo", fmtPct(results.cobertura)],
+              ].map(([label, val]) => (
+                <div key={label} style={{ background: "#1F2937", borderRadius: 12, padding: "16px 16px 14px", color: "white" }}>
+                  <div className="il-costo-display" style={{ fontSize: 22, fontWeight: 700 }}>{val}</div>
+                  <div style={{ fontSize: 11.5, color: "#C9CDD3", marginTop: 3 }}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            {results.unmatchedCount > 0 && (
+              <div style={{ background: "#FEF3E7", border: "1px solid #F5D9AE", borderRadius: 10, padding: "10px 14px", fontSize: 13, marginBottom: 16, color: "#92400E" }}>
+                {results.unmatchedCount} producto{results.unmatchedCount !== 1 ? "s" : ""} sin equivalencia en el escandallo — asígnala manualmente en la tabla y se recordará la próxima vez.
+              </div>
+            )}
+            {saveNote && (
+              <div style={{ fontSize: 12.5, color: "#15803D", marginBottom: 10 }}>{saveNote}</div>
+            )}
+
+            <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, overflow: "hidden", marginBottom: 28 }}>
+              <div className="il-costo-scroll" style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#1F2937", color: "white", textAlign: "left" }}>
+                      <th style={{ padding: "10px 14px", fontWeight: 600 }}>Producto</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Ud.</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Facturación</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Ratio coste</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Coste teórico</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.rows.map((r, i) => (
+                      <tr key={i} style={{ background: i % 2 ? "#FBF8F2" : "white", borderTop: "1px solid #F1EBDD" }}>
+                        <td style={{ padding: "9px 14px" }}>{r.producto}</td>
+                        <td style={{ padding: "9px 14px", textAlign: "right", color: "#78716C" }}>
+                          {r.unidades !== null ? fmtNum(r.unidades) : "—"}
+                        </td>
+                        <td style={{ padding: "9px 14px", textAlign: "right" }}>{fmtEUR(r.importe)}</td>
+                        <td style={{ padding: "9px 14px", textAlign: "right" }}>
+                          {r.match ? (
+                            <span style={{ color: ratioColor(r.ratioPct), fontWeight: 600 }}>{fmtPct(r.ratioPct)}</span>
+                          ) : (
+                            <select
+                              defaultValue=""
+                              onChange={(e) => e.target.value && handleManualMap(r.producto, e.target.value)}
+                              style={{ fontSize: 12, border: "1px solid #F5D9AE", borderRadius: 6, padding: "4px 6px", color: "#92400E", background: "#FEF3E7" }}
+                            >
+                              <option value="" disabled>Sin equivalencia — elegir…</option>
+                              {ESCANDALLOS_BASE.map((e) => (
+                                <option key={e.producto} value={e.producto}>{e.producto}</option>
+                              ))}
+                            </select>
+                          )}
+                        </td>
+                        <td style={{ padding: "9px 14px", textAlign: "right", fontWeight: 600 }}>
+                          {r.coste !== null ? fmtEUR(r.coste) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Base de escandallos */}
+        <div style={{ borderTop: "1px solid #ECE4D6", paddingTop: 18 }}>
+          <button
+            onClick={() => setShowEscandallos((s) => !s)}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 14, fontWeight: 600, color: "#1F2937", display: "flex", alignItems: "center", gap: 6 }}
+          >
+            <span style={{ display: "inline-block", transform: showEscandallos ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
+            Base de escandallos ({ESCANDALLOS_BASE.length} productos)
+          </button>
+          {showEscandallos && (
+            <div style={{ marginTop: 14 }}>
+              <input
+                type="text"
+                placeholder="Buscar producto…"
+                value={escandalloFilter}
+                onChange={(e) => setEscandalloFilter(e.target.value)}
+                style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E0D5", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 12, background: "#FFFDF9" }}
+              />
+              <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 10 }}>
+                Puedes ajustar un ratio manualmente (%) si ha cambiado el coste de una receta — se guarda para próximas veces.
+              </p>
+              <div className="il-costo-scroll" style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #ECE4D6", borderRadius: 10 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                  <tbody>
+                    {filteredEscandallos.map((e) => {
+                      const current = ratioOverrides[e.producto] !== undefined ? ratioOverrides[e.producto] : e.ratio;
+                      const isOverridden = ratioOverrides[e.producto] !== undefined;
+                      return (
+                        <tr key={e.producto} style={{ borderBottom: "1px solid #F1EBDD" }}>
+                          <td style={{ padding: "7px 12px" }}>{e.producto}</td>
+                          <td style={{ padding: "7px 12px", textAlign: "right", width: 110 }}>
+                            <input
+                              type="text"
+                              defaultValue={(current * 100).toFixed(2)}
+                              onBlur={(ev) => handleRatioEdit(e.producto, ev.target.value)}
+                              style={{
+                                width: 64,
+                                textAlign: "right",
+                                border: `1px solid ${isOverridden ? "#B45309" : "#E5E0D5"}`,
+                                borderRadius: 6,
+                                padding: "3px 6px",
+                                fontSize: 12,
+                                color: isOverridden ? "#B45309" : "#1F2937",
+                                fontWeight: isOverridden ? 700 : 400,
+                              }}
+                            />
+                            <span style={{ marginLeft: 3, color: "#9CA3AF" }}>%</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <p style={{ fontSize: 11.5, color: "#B0A99A", marginTop: 32, lineHeight: 1.5 }}>
+          El coste teórico se calcula como facturación × ratio de coste de escandallo, producto a producto.
+          Los nombres se cruzan de forma flexible (sin distinguir mayúsculas/acentos) y con las equivalencias
+          confirmadas del análisis 2025. Las equivalencias manuales y ajustes de ratio que hagas aquí se
+          guardan en este dispositivo para la próxima vez que abras la herramienta.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+      ReactDOM.createRoot(document.getElementById("root")).render(
+        React.createElement(React.StrictMode, null, React.createElement(CosteTeoricoApp))
+      );
+    </script>
+  </body>
+</html>
