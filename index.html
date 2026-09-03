@@ -1,5 +1,23 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
-import * as XLSX from "xlsx";
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Il Costo · Amorino</title>
+
+    <!-- React + ReactDOM (producción) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- SheetJS: lee archivos .xls / .xlsx directamente en el navegador -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin></script>
+    <!-- Babel standalone: transpila el JSX de abajo directamente en el navegador, sin paso de build -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" crossorigin></script>
+  </head>
+  <body style="margin:0;">
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react">
+const { useState, useMemo, useEffect, useCallback } = React;
 
 // ---------------------------------------------------------------------------
 // Datos base: escandallos (ratio de coste = coste / precio de venta)
@@ -335,7 +353,31 @@ function parseSalesInput(text) {
 // ---------------------------------------------------------------------------
 // Componente principal
 // ---------------------------------------------------------------------------
-export default function CosteTeoricoApp() {
+// ---------------------------------------------------------------------------
+// Almacenamiento persistente: localStorage del navegador (versión standalone).
+// En el artefacto de Claude.ai se usa window.storage; aquí, fuera de ese
+// entorno, usamos localStorage con la misma interfaz mínima que necesitamos.
+// ---------------------------------------------------------------------------
+const storage = {
+  async get(key) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      return raw === null ? null : { value: raw };
+    } catch (e) {
+      return null;
+    }
+  },
+  async set(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+      return { key, value };
+    } catch (e) {
+      return null;
+    }
+  },
+};
+
+function CosteTeoricoApp() {
   const [rawInput, setRawInput] = useState("");
   const [parsedRows, setParsedRows] = useState(null);
   const [skippedCount, setSkippedCount] = useState(0);
@@ -355,11 +397,11 @@ export default function CosteTeoricoApp() {
   useEffect(() => {
     (async () => {
       try {
-        const a = await window.storage.get("custom_aliases", false);
+        const a = await storage.get("il_costo_custom_aliases");
         if (a && a.value) setCustomAliases(JSON.parse(a.value));
       } catch (e) {}
       try {
-        const r = await window.storage.get("ratio_overrides", false);
+        const r = await storage.get("il_costo_ratio_overrides");
         if (r && r.value) setRatioOverrides(JSON.parse(r.value));
       } catch (e) {}
       setLoaded(true);
@@ -369,14 +411,14 @@ export default function CosteTeoricoApp() {
   const persistAliases = useCallback(async (next) => {
     setCustomAliases(next);
     try {
-      await window.storage.set("custom_aliases", JSON.stringify(next), false);
+      await storage.set("il_costo_custom_aliases", JSON.stringify(next));
     } catch (e) {}
   }, []);
 
   const persistOverrides = useCallback(async (next) => {
     setRatioOverrides(next);
     try {
-      await window.storage.set("ratio_overrides", JSON.stringify(next), false);
+      await storage.set("il_costo_ratio_overrides", JSON.stringify(next));
     } catch (e) {}
   }, []);
 
@@ -889,3 +931,10 @@ export default function CosteTeoricoApp() {
     </div>
   );
 }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(
+        React.createElement(React.StrictMode, null, React.createElement(CosteTeoricoApp))
+      );
+    </script>
+  </body>
+</html>
