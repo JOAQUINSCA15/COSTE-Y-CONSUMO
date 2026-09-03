@@ -1,23 +1,5 @@
-<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Il Costo · Amorino</title>
-
-    <!-- React + ReactDOM (producción) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
-    <!-- SheetJS: lee archivos .xls / .xlsx directamente en el navegador -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin></script>
-    <!-- Babel standalone: transpila el JSX de abajo directamente en el navegador, sin paso de build -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" crossorigin></script>
-  </head>
-  <body style="margin:0;">
-    <div id="root"></div>
-
-    <script type="text/babel" data-presets="react">
-const { useState, useMemo, useEffect, useCallback } = React;
+import React, { useState, useMemo, useEffect, useCallback } from "react";
+import * as XLSX from "xlsx";
 
 // ---------------------------------------------------------------------------
 // Datos base: escandallos (ratio de coste = coste / precio de venta)
@@ -140,6 +122,69 @@ const ESCANDALLOS_BASE = [
 ];
 
 // Alias -> nombre canónico del escandallo (reglas confirmadas en el análisis 2025)
+const GRAMOS_HELADO_BASE = [
+  { producto: "CONO PICCOLO", gramos: 130.0 },
+  { producto: "CONO NORMALE", gramos: 174.0 },
+  { producto: "CONO GRANDE", gramos: 243.0 },
+  { producto: "CONO BAMBINO", gramos: 85.0 },
+  { producto: "COPPA PICCOLA", gramos: 135.0 },
+  { producto: "COPPA NORMALE", gramos: 165.0 },
+  { producto: "COPPA GRANDE", gramos: 224.0 },
+  { producto: "COPPA GIGANTE", gramos: 283.0 },
+  { producto: "COPPA A COMPARTIR", gramos: 540.0 },
+  { producto: "COPPA BAMBINO", gramos: 85.0 },
+  { producto: "RULO HELADO", gramos: 50.0 },
+  { producto: "DÚO BOX", gramos: 300.0 },
+  { producto: "GOFRE TRADIZIONALE", gramos: 50.0 },
+  { producto: "GOFRE CON HELADO", gramos: 100.0 },
+  { producto: "GOFRE PERFETTO", gramos: 150.0 },
+  { producto: "GOFRE DELIZIOSO", gramos: 100.0 },
+  { producto: "GOFRE IMPRESCINDIBLE", gramos: 50.0 },
+  { producto: "CREP TRADIZIONALE", gramos: 50.0 },
+  { producto: "CREP CON HELADO", gramos: 100.0 },
+  { producto: "CREP PERFETTO", gramos: 150.0 },
+  { producto: "CREP DELIZIOSA", gramos: 100.0 },
+  { producto: "BRIOCHE SICILIANO", gramos: 100.0 },
+  { producto: "BRIOCHE DELIZIOSO", gramos: 100.0 },
+  { producto: "BRIOCHE TRADIZIONALE", gramos: 50.0 },
+  { producto: "BRIOCHE GELATO", gramos: 100.0 },
+  { producto: "ESPRESSO FRAPPÈ TAMAÑO ÚNICO", gramos: 100.0 },
+  { producto: "MILKSHAKE TAMAÑO ÚNICO", gramos: 100.0 },
+  { producto: "VEGAN SHAKE TAMAÑO ÚNICO", gramos: 100.0 },
+  { producto: "SORBET DRINK TAMAÑO ÚNICO", gramos: 100.0 },
+  { producto: "AFFOGATO AL CAFFÈ", gramos: 80.0 },
+  { producto: "AFFOGATO AL CIOCCOLATO", gramos: 80.0 },
+  { producto: "AFFOGATO AL CAFFÈ GOURMET", gramos: 80.0 },
+  { producto: "MILKSHAKE GOURMET TAMAÑO ÚNICO", gramos: 100.0 },
+  { producto: "COPPA GOURMET", gramos: 160.0 },
+  { producto: "PARA LLEVAR 550 ml", gramos: 484.0 },
+  { producto: "PARA LLEVAR 1000 ml", gramos: 968.0 },
+];
+
+// Alias -> nombre canónico del bloque de helado (mismas reglas + las de este feature)
+const ALIASES_HELADO = {
+  "cono classico": "CONO NORMALE",
+  "cono infantil": "CONO BAMBINO",
+  "coppa classica": "COPPA NORMALE",
+  "coppa grandissima": "COPPA GIGANTE",
+  "coppa infantil": "COPPA BAMBINO",
+  "1/2 litro": "PARA LLEVAR 550 ml",
+  "1 litro": "PARA LLEVAR 1000 ml",
+  "gofre gelato": "GOFRE CON HELADO",
+  "crep gelato": "CREP CON HELADO",
+  "sticks de gofre imprescindible": "GOFRE IMPRESCINDIBLE",
+  "espresso frappe": "ESPRESSO FRAPPÈ TAMAÑO ÚNICO",
+  "milkshake": "MILKSHAKE TAMAÑO ÚNICO",
+  "batido": "MILKSHAKE TAMAÑO ÚNICO",
+  "vegan shake": "VEGAN SHAKE TAMAÑO ÚNICO",
+  "sorbet drink": "SORBET DRINK TAMAÑO ÚNICO",
+  "milkshake gourmet": "MILKSHAKE GOURMET TAMAÑO ÚNICO",
+  "coppa gourmet \"a tu gusto\"": "COPPA GOURMET",
+  "coppa gourmet caramello y vaniglia": "COPPA GOURMET",
+  "coppa gourmet limone e fragola": "COPPA GOURMET",
+  "coppa gourmet vaniglia e inimitabile": "COPPA GOURMET",
+};
+
 const ALIASES = {
   "refresco pet": "Refresco",
   "batido": "Milkshake",
@@ -290,31 +335,7 @@ function parseSalesInput(text) {
 // ---------------------------------------------------------------------------
 // Componente principal
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Almacenamiento persistente: localStorage del navegador (versión standalone).
-// En el artefacto de Claude.ai se usa window.storage; aquí, fuera de ese
-// entorno, usamos localStorage con la misma interfaz mínima que necesitamos.
-// ---------------------------------------------------------------------------
-const storage = {
-  async get(key) {
-    try {
-      const raw = window.localStorage.getItem(key);
-      return raw === null ? null : { value: raw };
-    } catch (e) {
-      return null;
-    }
-  },
-  async set(key, value) {
-    try {
-      window.localStorage.setItem(key, value);
-      return { key, value };
-    } catch (e) {
-      return null;
-    }
-  },
-};
-
-function CosteTeoricoApp() {
+export default function CosteTeoricoApp() {
   const [rawInput, setRawInput] = useState("");
   const [parsedRows, setParsedRows] = useState(null);
   const [skippedCount, setSkippedCount] = useState(0);
@@ -334,11 +355,11 @@ function CosteTeoricoApp() {
   useEffect(() => {
     (async () => {
       try {
-        const a = await storage.get("il_costo_custom_aliases");
+        const a = await window.storage.get("custom_aliases", false);
         if (a && a.value) setCustomAliases(JSON.parse(a.value));
       } catch (e) {}
       try {
-        const r = await storage.get("il_costo_ratio_overrides");
+        const r = await window.storage.get("ratio_overrides", false);
         if (r && r.value) setRatioOverrides(JSON.parse(r.value));
       } catch (e) {}
       setLoaded(true);
@@ -348,14 +369,14 @@ function CosteTeoricoApp() {
   const persistAliases = useCallback(async (next) => {
     setCustomAliases(next);
     try {
-      await storage.set("il_costo_custom_aliases", JSON.stringify(next));
+      await window.storage.set("custom_aliases", JSON.stringify(next), false);
     } catch (e) {}
   }, []);
 
   const persistOverrides = useCallback(async (next) => {
     setRatioOverrides(next);
     try {
-      await storage.set("il_costo_ratio_overrides", JSON.stringify(next));
+      await window.storage.set("ratio_overrides", JSON.stringify(next), false);
     } catch (e) {}
   }, []);
 
@@ -384,16 +405,43 @@ function CosteTeoricoApp() {
     [escandalloIndex, customAliases]
   );
 
+  // Índice de gramos de helado por producto (dato fijo, sin overrides por ahora)
+  const heladoIndex = useMemo(() => {
+    const idx = {};
+    for (const h of GRAMOS_HELADO_BASE) {
+      idx[normalize(h.producto)] = { producto: h.producto, gramos: h.gramos };
+    }
+    return idx;
+  }, []);
+
+  const resolveHelado = useCallback(
+    (nombre) => {
+      const n = normalize(nombre);
+      if (heladoIndex[n]) return heladoIndex[n];
+      if (ALIASES_HELADO[n] && heladoIndex[normalize(ALIASES_HELADO[n])]) {
+        return heladoIndex[normalize(ALIASES_HELADO[n])];
+      }
+      return null;
+    },
+    [heladoIndex]
+  );
+
   const results = useMemo(() => {
     if (!parsedRows) return null;
     const rows = parsedRows.map((r) => {
       const match = resolveProduct(r.producto);
       const coste = match ? r.importe * match.ratio : null;
+      const heladoMatch = resolveHelado(r.producto);
+      const gramosHeladoUd = heladoMatch ? heladoMatch.gramos : 0;
+      const gramosHeladoTotal = heladoMatch && r.unidades !== null ? heladoMatch.gramos * r.unidades : null;
       return {
         ...r,
         match,
         ratioPct: match ? match.ratio * 100 : null,
         coste,
+        heladoMatch,
+        gramosHeladoUd,
+        gramosHeladoTotal,
       };
     });
     rows.sort((a, b) => (b.importe || 0) - (a.importe || 0));
@@ -404,8 +452,21 @@ function CosteTeoricoApp() {
     const cobertura = totalImporte > 0 ? (importeConCoste / totalImporte) * 100 : 0;
     const ratioMedio = importeConCoste > 0 ? (costeTotal / importeConCoste) * 100 : null;
     const unmatchedCount = rows.length - matchedRows.length;
-    return { rows, totalImporte, importeConCoste, costeTotal, cobertura, ratioMedio, unmatchedCount };
-  }, [parsedRows, resolveProduct]);
+
+    // Litros de helado: solo se pueden sumar las líneas que tienen unidades (no basta con el importe)
+    const heladoRows = rows.filter((r) => r.heladoMatch && r.gramosHeladoUd > 0);
+    const heladoConUnidades = heladoRows.filter((r) => r.gramosHeladoTotal !== null);
+    const heladoSinUnidades = heladoRows.filter((r) => r.gramosHeladoTotal === null);
+    const gramosHeladoTotal = heladoConUnidades.reduce((a, r) => a + r.gramosHeladoTotal, 0);
+    const litrosHelado = gramosHeladoTotal / 880;
+
+    return {
+      rows, totalImporte, importeConCoste, costeTotal, cobertura, ratioMedio, unmatchedCount,
+      heladoRows: heladoConUnidades.sort((a, b) => b.gramosHeladoTotal - a.gramosHeladoTotal),
+      heladoSinUnidades,
+      gramosHeladoTotal, litrosHelado,
+    };
+  }, [parsedRows, resolveProduct, resolveHelado]);
 
   const handleCalcular = () => {
     if (!selectedTienda) {
@@ -695,6 +756,68 @@ function CosteTeoricoApp() {
                 </table>
               </div>
             </div>
+
+            {/* Litros de helado */}
+            <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 28 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 20 }}>🍦</span>
+                <span style={{ fontWeight: 700, fontSize: 15 }}>Litros de helado vendidos</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 14 }}>
+                <div style={{ background: "#FEF3E7", borderRadius: 12, padding: "16px 16px 14px" }}>
+                  <div className="il-costo-display" style={{ fontSize: 22, fontWeight: 700, color: "#92400E" }}>
+                    {results.litrosHelado.toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} L
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "#92400E", marginTop: 3 }}>Litros de helado (÷ 880 g/L)</div>
+                </div>
+                <div style={{ background: "#FEF3E7", borderRadius: 12, padding: "16px 16px 14px" }}>
+                  <div className="il-costo-display" style={{ fontSize: 22, fontWeight: 700, color: "#92400E" }}>
+                    {fmtNum(results.gramosHeladoTotal)} g
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "#92400E", marginTop: 3 }}>Gramos de helado totales</div>
+                </div>
+              </div>
+
+              {results.heladoSinUnidades.length > 0 && (
+                <div style={{ background: "#FEF3E7", border: "1px solid #F5D9AE", borderRadius: 10, padding: "9px 13px", fontSize: 12.5, marginBottom: 14, color: "#92400E" }}>
+                  {results.heladoSinUnidades.length} producto{results.heladoSinUnidades.length !== 1 ? "s" : ""} con helado (
+                  {results.heladoSinUnidades.map((r) => r.producto).join(", ")}) no tenían columna de <b>unidades</b> en los
+                  datos pegados/importados, así que no se han podido sumar a los litros — el cálculo de coste no se ve afectado, solo el de helado.
+                </div>
+              )}
+
+              <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 10 }}>
+                Solo se cuentan los productos con gramaje de helado documentado en el escandallo (36 referencias:
+                conos, coppas, gofres/creps/brioches "con helado", bebidas con gelato, affogati, coppa gourmet y
+                los formatos para llevar). El resto de productos (café, toppings sueltos, macarons, bollería…)
+                cuentan como 0 g — no llevan helado.
+              </p>
+
+              {results.heladoRows.length > 0 && (
+                <div className="il-costo-scroll" style={{ overflowX: "auto", border: "1px solid #ECE4D6", borderRadius: 10 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                    <thead>
+                      <tr style={{ background: "#1F2937", color: "white", textAlign: "left" }}>
+                        <th style={{ padding: "8px 12px", fontWeight: 600 }}>Producto</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600, textAlign: "right" }}>Ud.</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600, textAlign: "right" }}>g helado / ud.</th>
+                        <th style={{ padding: "8px 12px", fontWeight: 600, textAlign: "right" }}>Total gramos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {results.heladoRows.map((r, i) => (
+                        <tr key={i} style={{ background: i % 2 ? "#FBF8F2" : "white", borderTop: "1px solid #F1EBDD" }}>
+                          <td style={{ padding: "7px 12px" }}>{r.producto}</td>
+                          <td style={{ padding: "7px 12px", textAlign: "right", color: "#78716C" }}>{fmtNum(r.unidades)}</td>
+                          <td style={{ padding: "7px 12px", textAlign: "right", color: "#78716C" }}>{fmtNum(r.gramosHeladoUd)}</td>
+                          <td style={{ padding: "7px 12px", textAlign: "right", fontWeight: 600 }}>{fmtNum(r.gramosHeladoTotal)} g</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </>
         )}
 
@@ -766,10 +889,3 @@ function CosteTeoricoApp() {
     </div>
   );
 }
-
-      ReactDOM.createRoot(document.getElementById("root")).render(
-        React.createElement(React.StrictMode, null, React.createElement(CosteTeoricoApp))
-      );
-    </script>
-  </body>
-</html>
