@@ -190,6 +190,7 @@ const ALIASES_HELADO = {
   "1 litro": "PARA LLEVAR 1000 ml",
   "gofre gelato": "GOFRE CON HELADO",
   "crep gelato": "CREP CON HELADO",
+  "crep la tradizionale": "CREP TRADIZIONALE",
   "sticks de gofre imprescindible": "GOFRE IMPRESCINDIBLE",
   "espresso frappe": "ESPRESSO FRAPPÈ TAMAÑO ÚNICO",
   "milkshake": "MILKSHAKE TAMAÑO ÚNICO",
@@ -197,10 +198,88 @@ const ALIASES_HELADO = {
   "vegan shake": "VEGAN SHAKE TAMAÑO ÚNICO",
   "sorbet drink": "SORBET DRINK TAMAÑO ÚNICO",
   "milkshake gourmet": "MILKSHAKE GOURMET TAMAÑO ÚNICO",
-  "coppa gourmet \"a tu gusto\"": "COPPA GOURMET",
+  "coppa gourmet a tu gusto": "COPPA GOURMET",
   "coppa gourmet caramello y vaniglia": "COPPA GOURMET",
   "coppa gourmet limone e fragola": "COPPA GOURMET",
   "coppa gourmet vaniglia e inimitabile": "COPPA GOURMET",
+};
+
+const PROPORCION_HELADO_BASE = [
+  { producto: "CONO PICCOLO", proporcion: 0.8843 },
+  { producto: "CONO NORMALE", proporcion: 0.9068 },
+  { producto: "CONO GRANDE", proporcion: 0.9119 },
+  { producto: "CONO BAMBINO", proporcion: 0.8518 },
+  { producto: "COPPA PICCOLA", proporcion: 0.9297 },
+  { producto: "COPPA NORMALE", proporcion: 0.9403 },
+  { producto: "COPPA GRANDE", proporcion: 0.9509 },
+  { producto: "COPPA GIGANTE", proporcion: 0.9479 },
+  { producto: "COPPA A COMPARTIR", proporcion: 0.9675 },
+  { producto: "COPPA BAMBINO", proporcion: 0.8928 },
+  { producto: "PARA LLEVAR 550 ml", proporcion: 0.8958 },
+  { producto: "PARA LLEVAR 1000 ml", proporcion: 0.9449 },
+  { producto: "RULO HELADO", proporcion: 1.0 },
+  { producto: "DÚO BOX", proporcion: 0.3295 },
+  { producto: "BLISS BOX", proporcion: 0.6714 },
+  { producto: "GOFRE TRADIZIONALE", proporcion: 0.2925 },
+  { producto: "GOFRE CON HELADO", proporcion: 0.5336 },
+  { producto: "GOFRE PERFETTO", proporcion: 0.4832 },
+  { producto: "GOFRE DELIZIOSO", proporcion: 0.4526 },
+  { producto: "GOFRE IMPRESCINDIBLE", proporcion: 0.2072 },
+  { producto: "CREP TRADIZIONALE", proporcion: 0.2824 },
+  { producto: "CREP CON HELADO", proporcion: 0.5167 },
+  { producto: "CREP PERFETTO", proporcion: 0.4738 },
+  { producto: "CREP DELIZIOSA", proporcion: 0.4404 },
+  { producto: "BRIOCHE SICILIANO", proporcion: 0.4925 },
+  { producto: "BRIOCHE DELIZIOSO", proporcion: 0.5456 },
+  { producto: "BRIOCHE TRADIZIONALE", proporcion: 0.3752 },
+  { producto: "BRIOCHE GELATO", proporcion: 0.6006 },
+  { producto: "ESPRESSO FRAPPÈ TAMAÑO ÚNICO", proporcion: 0.4702 },
+  { producto: "MILKSHAKE TAMAÑO ÚNICO", proporcion: 0.7174 },
+  { producto: "VEGAN SHAKE TAMAÑO ÚNICO", proporcion: 0.6996 },
+  { producto: "SORBET DRINK TAMAÑO ÚNICO", proporcion: 0.8312 },
+  { producto: "AFFOGATO AL CAFFÈ", proporcion: 0.6324 },
+  { producto: "AFFOGATO AL CIOCCOLATO", proporcion: 0.3985 },
+  { producto: "AFFOGATO AL CAFFÈ GOURMET", proporcion: 0.4169 },
+  { producto: "MILKSHAKE GOURMET TAMAÑO ÚNICO", proporcion: 0.4883 },
+  { producto: "COPPA GOURMET", proporcion: 0.6929 },
+];
+
+// Consumo de "materias primas base" por producto vendido (para Coste Real).
+// Cada clave es el nombre de producto normalizado (sin acentos/mayúsculas/comillas);
+// el valor es cuántas unidades base consume la venta de 1 unidad de ese producto.
+const MATERIAL_MACARONS = {
+  "macaron gelato unidad": 1,
+  "cofre 12 macarons gelato": 12,
+  "cofre 12 macarons tradicional": 12,
+};
+const MATERIAL_MACARONS_GRANDIOSOS = {
+  "macaron grandioso": 1,
+  "cofre 2 unid. macaron grandioso": 2,
+  "cofre 2 unid macaron grandioso": 2,
+};
+const MATERIAL_GOFRES = {
+  "gofre azucar": 1,
+  "gofre caramello": 1,
+  "gofre cioccolato": 1,
+  "gofre dulce de leche": 1,
+  "gofre gianduja": 1,
+  "gofre tradizionale": 1,
+  "gofre gelato": 1,
+  "gofre delizioso": 1,
+  "gofre perfetto": 1,
+  "sticks de gofre": 1,
+  "sticks de gofre imprescindible": 1,
+};
+const MATERIAL_CREPS = {
+  "crep azucar": 1,
+  "crep caramello": 1,
+  "crep cioccolato": 1,
+  "crep dulce de leche": 1,
+  "crep gianduja": 1,
+  "crep la tradizionale": 1,
+  "crep gelato": 1,
+  "crep perfetto": 1,
+  "crep deliziosa": 1,
 };
 
 const ALIASES = {
@@ -247,7 +326,7 @@ const normalize = (s) =>
     .toString()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/["“”]/g, '"')
+    .replace(/["“”]/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
@@ -313,6 +392,32 @@ function parseWorkbookRows(aoa) {
     else skipped++;
   }
   return { rows, skipped };
+}
+
+// ---------------------------------------------------------------------------
+// Parser del archivo de INVENTARIO (formato fijo: INVENTARIO_FORMATO.xlsx)
+// Lee por dirección de celda absoluta, ya que es una plantilla de estructura fija.
+// ---------------------------------------------------------------------------
+function readCellValue(ws, addr) {
+  const cell = ws[addr];
+  return cell ? cell.v : null;
+}
+
+function parseInventarioSheet(ws) {
+  const fecha = readCellValue(ws, "D8");
+  const subtotal3L = Number(readCellValue(ws, "I17")) || 0;
+  const subtotal5L = Number(readCellValue(ws, "N17")) || 0;
+  const subtotal7L = Number(readCellValue(ws, "S17")) || 0;
+  const totalLitros = subtotal3L + subtotal5L + subtotal7L;
+  const macarons = Number(readCellValue(ws, "E28")) || 0;
+  const gofres = Number(readCellValue(ws, "J28")) || 0;
+  const creps = Number(readCellValue(ws, "O28")) || 0;
+  const macaronsGrandiosos = Number(readCellValue(ws, "G39")) || 0;
+
+  // validación mínima: si no hay fecha ni ningún total, probablemente no es este formato
+  const valido = fecha !== null || totalLitros > 0 || macarons > 0 || gofres > 0 || creps > 0 || macaronsGrandiosos > 0;
+
+  return { fecha, totalLitros, macarons, gofres, creps, macaronsGrandiosos, valido };
 }
 
 function parseSalesInput(text) {
@@ -386,6 +491,18 @@ function CosteTeoricoApp() {
   const [tiendaWarning, setTiendaWarning] = useState(false);
   const [fileName, setFileName] = useState("");
   const [fileError, setFileError] = useState("");
+
+  // --- Coste Real ---
+  const [activeTab, setActiveTab] = useState("teorico"); // "teorico" | "real"
+  const [invInicial, setInvInicial] = useState(null);
+  const [invInicialFileName, setInvInicialFileName] = useState("");
+  const [invInicialError, setInvInicialError] = useState("");
+  const [invFinal, setInvFinal] = useState(null);
+  const [invFinalFileName, setInvFinalFileName] = useState("");
+  const [invFinalError, setInvFinalError] = useState("");
+  const [showCompras, setShowCompras] = useState(false);
+  const [compras, setCompras] = useState({ litrosHelado: 0, macarons: 0, gofres: 0, creps: 0, macaronsGrandiosos: 0 });
+  const [showImputacion, setShowImputacion] = useState(false);
   const [customAliases, setCustomAliases] = useState({});
   const [ratioOverrides, setRatioOverrides] = useState({});
   const [showEscandallos, setShowEscandallos] = useState(false);
@@ -468,6 +585,31 @@ function CosteTeoricoApp() {
     [heladoIndex]
   );
 
+  const proporcionIndex = useMemo(() => {
+    const idx = {};
+    for (const p of PROPORCION_HELADO_BASE) {
+      idx[normalize(p.producto)] = { producto: p.producto, proporcion: p.proporcion };
+    }
+    return idx;
+  }, []);
+
+  const resolveProporcion = useCallback(
+    (nombre) => {
+      const n = normalize(nombre);
+      if (proporcionIndex[n]) return proporcionIndex[n];
+      if (ALIASES_HELADO[n] && proporcionIndex[normalize(ALIASES_HELADO[n])]) {
+        return proporcionIndex[normalize(ALIASES_HELADO[n])];
+      }
+      return null;
+    },
+    [proporcionIndex]
+  );
+
+  const resolveMaterial = (dict, nombre) => {
+    const n = normalize(nombre);
+    return dict[n] !== undefined ? dict[n] : null;
+  };
+
   const results = useMemo(() => {
     if (!parsedRows) return null;
     const rows = parsedRows.map((r) => {
@@ -476,6 +618,12 @@ function CosteTeoricoApp() {
       const heladoMatch = resolveHelado(r.producto);
       const gramosHeladoUd = heladoMatch ? heladoMatch.gramos : 0;
       const gramosHeladoTotal = heladoMatch && r.unidades !== null ? heladoMatch.gramos * r.unidades : null;
+      const proporcionMatch = resolveProporcion(r.producto);
+      const importeImputadoHelado = proporcionMatch ? r.importe * proporcionMatch.proporcion : null;
+      const macaronsUd = resolveMaterial(MATERIAL_MACARONS, r.producto);
+      const macaronsGrandiososUd = resolveMaterial(MATERIAL_MACARONS_GRANDIOSOS, r.producto);
+      const gofresUd = resolveMaterial(MATERIAL_GOFRES, r.producto);
+      const crepsUd = resolveMaterial(MATERIAL_CREPS, r.producto);
       return {
         ...r,
         match,
@@ -484,6 +632,9 @@ function CosteTeoricoApp() {
         heladoMatch,
         gramosHeladoUd,
         gramosHeladoTotal,
+        proporcionMatch,
+        importeImputadoHelado,
+        macaronsUd, macaronsGrandiososUd, gofresUd, crepsUd,
       };
     });
     rows.sort((a, b) => (b.importe || 0) - (a.importe || 0));
@@ -502,13 +653,56 @@ function CosteTeoricoApp() {
     const gramosHeladoTotal = heladoConUnidades.reduce((a, r) => a + r.gramosHeladoTotal, 0);
     const litrosHelado = gramosHeladoTotal / 880;
 
+    // Imputación de facturación a helado (transparencia)
+    const imputacionRows = rows.filter((r) => r.proporcionMatch && r.importeImputadoHelado > 0)
+      .sort((a, b) => b.importeImputadoHelado - a.importeImputadoHelado);
+    const totalImputadoHelado = imputacionRows.reduce((a, r) => a + r.importeImputadoHelado, 0);
+
+    // Consumo teórico de materias primas base (para Coste Real)
+    function sumMaterial(key) {
+      const conUnidades = rows.filter((r) => r[key] !== null && r.unidades !== null);
+      const sinUnidades = rows.filter((r) => r[key] !== null && r.unidades === null);
+      const total = conUnidades.reduce((a, r) => a + r[key] * r.unidades, 0);
+      return { total, conUnidades, sinUnidades };
+    }
+    const consumoTeoricoMacarons = sumMaterial("macaronsUd");
+    const consumoTeoricoMacaronsGrandiosos = sumMaterial("macaronsGrandiososUd");
+    const consumoTeoricoGofres = sumMaterial("gofresUd");
+    const consumoTeoricoCreps = sumMaterial("crepsUd");
+
     return {
       rows, totalImporte, importeConCoste, costeTotal, cobertura, ratioMedio, unmatchedCount,
       heladoRows: heladoConUnidades.sort((a, b) => b.gramosHeladoTotal - a.gramosHeladoTotal),
       heladoSinUnidades,
       gramosHeladoTotal, litrosHelado,
+      imputacionRows, totalImputadoHelado,
+      consumoTeoricoMacarons, consumoTeoricoMacaronsGrandiosos, consumoTeoricoGofres, consumoTeoricoCreps,
     };
-  }, [parsedRows, resolveProduct, resolveHelado]);
+  }, [parsedRows, resolveProduct, resolveHelado, resolveProporcion]);
+
+  const costeReal = useMemo(() => {
+    if (!results || !invInicial || !invFinal) return null;
+
+    const consumoRealLitros = invInicial.totalLitros + Number(compras.litrosHelado || 0) - invFinal.totalLitros;
+    const consumoRealMacarons = invInicial.macarons + Number(compras.macarons || 0) - invFinal.macarons;
+    const consumoRealMacaronsGrandiosos = invInicial.macaronsGrandiosos + Number(compras.macaronsGrandiosos || 0) - invFinal.macaronsGrandiosos;
+    const consumoRealGofres = invInicial.gofres + Number(compras.gofres || 0) - invFinal.gofres;
+    const consumoRealCreps = invInicial.creps + Number(compras.creps || 0) - invFinal.creps;
+
+    function compara(real, teorico) {
+      const delta = real - teorico;
+      const deltaPct = teorico !== 0 ? (delta / teorico) * 100 : null;
+      return { real, teorico, delta, deltaPct };
+    }
+
+    return {
+      litros: compara(consumoRealLitros, results.litrosHelado),
+      macarons: compara(consumoRealMacarons, results.consumoTeoricoMacarons.total),
+      macaronsGrandiosos: compara(consumoRealMacaronsGrandiosos, results.consumoTeoricoMacaronsGrandiosos.total),
+      gofres: compara(consumoRealGofres, results.consumoTeoricoGofres.total),
+      creps: compara(consumoRealCreps, results.consumoTeoricoCreps.total),
+    };
+  }, [results, invInicial, invFinal, compras]);
 
   const handleCalcular = () => {
     if (!selectedTienda) {
@@ -550,6 +744,31 @@ function CosteTeoricoApp() {
       setRawInput("");
     } catch (err) {
       setFileError("No se ha podido leer el archivo: " + err.message);
+    }
+    e.target.value = "";
+  };
+
+  const handleInventarioUpload = async (e, cual) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const setInv = cual === "inicial" ? setInvInicial : setInvFinal;
+    const setName = cual === "inicial" ? setInvInicialFileName : setInvFinalFileName;
+    const setErr = cual === "inicial" ? setInvInicialError : setInvFinalError;
+    setErr("");
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const parsed = parseInventarioSheet(sheet);
+      if (!parsed.valido) {
+        setErr("No reconozco este archivo como una plantilla de inventario (¿tiene el mismo formato que INVENTARIO_FORMATO.xlsx?).");
+        e.target.value = "";
+        return;
+      }
+      setInv(parsed);
+      setName(file.name);
+    } catch (err) {
+      setErr("No se ha podido leer el archivo: " + err.message);
     }
     e.target.value = "";
   };
@@ -723,8 +942,36 @@ function CosteTeoricoApp() {
           </div>
         </div>
 
-        {/* Resultados */}
+        {/* Selector de pestañas */}
         {results && (
+          <div style={{ display: "flex", gap: 4, marginBottom: 22, borderBottom: "1px solid #ECE4D6" }}>
+            {[
+              ["teorico", "Coste Teórico"],
+              ["real", "Coste Real"],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  borderBottom: activeTab === key ? "2.5px solid #B45309" : "2.5px solid transparent",
+                  padding: "10px 18px",
+                  fontSize: 14,
+                  fontWeight: activeTab === key ? 700 : 500,
+                  color: activeTab === key ? "#1F2937" : "#9CA3AF",
+                  cursor: "pointer",
+                  marginBottom: -1,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Resultados: Coste Teórico */}
+        {results && activeTab === "teorico" && (
           <>
             <div style={{ fontSize: 13, color: "#78716C", marginBottom: 10 }}>
               Resultados — <strong style={{ color: "#1F2937" }}>{selectedTienda}</strong>
@@ -861,6 +1108,203 @@ function CosteTeoricoApp() {
               )}
             </div>
           </>
+        )}
+
+        {/* Resultados: Coste Real */}
+        {results && activeTab === "real" && (
+          <div style={{ marginBottom: 28 }}>
+            <p style={{ fontSize: 13, color: "#57534E", lineHeight: 1.6, marginBottom: 18 }}>
+              Compara el consumo <b>real</b> de materia prima (inventario inicial + compras − inventario final)
+              con el consumo <b>teórico</b> que deberían haber generado las ventas de arriba. Sube los dos
+              inventarios (misma plantilla que <code>INVENTARIO_FORMATO.xlsx</code>) y, si ha habido compras
+              entre medias, indícalas en "Compras del periodo".
+            </p>
+
+            {/* Subida de inventarios */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginBottom: 18 }}>
+              {[
+                { key: "inicial", label: "Inventario inicial", inv: invInicial, name: invInicialFileName, err: invInicialError },
+                { key: "final", label: "Inventario final", inv: invFinal, name: invFinalFileName, err: invFinalError },
+              ].map(({ key, label, inv, name, err }) => (
+                <div key={key} style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 18 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{label}</div>
+                  <label
+                    htmlFor={`inv-${key}-input`}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer",
+                      background: "#FEF3E7", border: "1px solid #F5D9AE", borderRadius: 9,
+                      padding: "8px 14px", fontSize: 13, fontWeight: 600, color: "#92400E",
+                    }}
+                  >
+                    📄 Cargar {label.toLowerCase()}
+                  </label>
+                  <input
+                    id={`inv-${key}-input`}
+                    type="file"
+                    accept=".xls,.xlsx"
+                    onChange={(e) => handleInventarioUpload(e, key)}
+                    style={{ display: "none" }}
+                  />
+                  {name && <div style={{ marginTop: 8, fontSize: 12.5, color: "#78716C" }}>{name} ✓</div>}
+                  {err && <div style={{ marginTop: 8, fontSize: 12.5, color: "#B91C1C" }}>{err}</div>}
+                  {inv && (
+                    <div style={{ marginTop: 12, fontSize: 12.5, color: "#374151", lineHeight: 1.7 }}>
+                      <div>
+                        <b>Fecha de recuento:</b>{" "}
+                        {inv.fecha instanceof Date
+                          ? inv.fecha.toLocaleDateString("es-ES")
+                          : inv.fecha ?? "—"}
+                      </div>
+                      <div>🍦 Litros de helado: <b>{fmtNum(inv.totalLitros)} L</b></div>
+                      <div>🍬 Macarons: <b>{fmtNum(inv.macarons)}</b></div>
+                      <div>🍬 Macarons Grandiosos: <b>{fmtNum(inv.macaronsGrandiosos)}</b></div>
+                      <div>🧇 Gofres: <b>{fmtNum(inv.gofres)}</b></div>
+                      <div>🥞 Creps: <b>{fmtNum(inv.creps)}</b></div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Compras del periodo */}
+            <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 18, marginBottom: 22 }}>
+              <button
+                onClick={() => setShowCompras((s) => !s)}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 14, fontWeight: 700, color: "#1F2937", display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <span style={{ display: "inline-block", transform: showCompras ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
+                Compras del periodo
+                {invInicial && invFinal && (
+                  <span style={{ fontWeight: 400, fontSize: 12.5, color: "#9CA3AF", marginLeft: 6 }}>
+                    ({invInicial.fecha instanceof Date ? invInicial.fecha.toLocaleDateString("es-ES") : "?"}
+                    {" – "}
+                    {invFinal.fecha instanceof Date ? invFinal.fecha.toLocaleDateString("es-ES") : "?"})
+                  </span>
+                )}
+              </button>
+              {showCompras && (
+                <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
+                  {[
+                    ["litrosHelado", "Litros de helado", "L"],
+                    ["macarons", "Macarons", "ud."],
+                    ["macaronsGrandiosos", "Macarons Grandiosos", "ud."],
+                    ["gofres", "Gofres (bases)", "ud."],
+                    ["creps", "Creps (bases)", "ud."],
+                  ].map(([key, label, unit]) => (
+                    <div key={key}>
+                      <label style={{ display: "block", fontSize: 12, color: "#78716C", marginBottom: 4 }}>{label} ({unit})</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={compras[key]}
+                        onChange={(e) => setCompras((c) => ({ ...c, [key]: e.target.value === "" ? 0 : parseFloat(e.target.value) }))}
+                        style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E0D5", borderRadius: 8, padding: "8px 10px", fontSize: 13.5, background: "#FFFDF9" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Comparación Real vs Teórico */}
+            {costeReal ? (
+              <>
+                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Real vs. Teórico — de golpe</div>
+                <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, overflow: "hidden", marginBottom: 22 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: "#1F2937", color: "white", textAlign: "left" }}>
+                        <th style={{ padding: "10px 14px", fontWeight: 600 }}>Materia prima</th>
+                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Consumo teórico</th>
+                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Consumo real</th>
+                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Diferencia</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        ["🍦 Helado", costeReal.litros, "L", 1],
+                        ["🍬 Macarons", costeReal.macarons, "ud.", 0],
+                        ["🍬 Macarons Grandiosos", costeReal.macaronsGrandiosos, "ud.", 0],
+                        ["🧇 Gofres", costeReal.gofres, "ud.", 0],
+                        ["🥞 Creps", costeReal.creps, "ud.", 0],
+                      ].map(([label, c, unit, dec], i) => {
+                        const overConsumption = c.delta > 0;
+                        const deltaColor = Math.abs(c.delta) < 0.001 ? "#78716C" : overConsumption ? "#B91C1C" : "#1D4ED8";
+                        return (
+                          <tr key={label} style={{ background: i % 2 ? "#FBF8F2" : "white", borderTop: "1px solid #F1EBDD" }}>
+                            <td style={{ padding: "10px 14px", fontWeight: 600 }}>{label}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right" }}>{c.teorico.toFixed(dec)} {unit}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right" }}>{c.real.toFixed(dec)} {unit}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 700, color: deltaColor }}>
+                              {c.delta >= 0 ? "+" : ""}{c.delta.toFixed(dec)} {unit}
+                              {c.deltaPct !== null && (
+                                <span style={{ fontWeight: 400, fontSize: 11.5, marginLeft: 4 }}>
+                                  ({c.deltaPct >= 0 ? "+" : ""}{c.deltaPct.toFixed(1)}%)
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 22 }}>
+                  <span style={{ color: "#B91C1C", fontWeight: 700 }}>Rojo</span> = has consumido más materia prima de la que las
+                  ventas justifican (posible merma, desperdicio o error de inventario/compras). {" "}
+                  <span style={{ color: "#1D4ED8", fontWeight: 700 }}>Azul</span> = has consumido menos de lo esperado
+                  (revisa si falta algún registro de compra, o si el inventario está bien contado).
+                </p>
+              </>
+            ) : (
+              <p style={{ fontSize: 13, color: "#9CA3AF", marginBottom: 22 }}>
+                Sube los dos inventarios (inicial y final) para ver la comparación real vs. teórico.
+              </p>
+            )}
+
+            {/* Imputación de facturación a helado (transparencia) */}
+            <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 18 }}>
+              <button
+                onClick={() => setShowImputacion((s) => !s)}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 14, fontWeight: 700, color: "#1F2937", display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <span style={{ display: "inline-block", transform: showImputacion ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</span>
+                🍦 Imputación de facturación a helado — {fmtEUR(results.totalImputadoHelado)}
+              </button>
+              {showImputacion && (
+                <>
+                  <p style={{ fontSize: 12, color: "#9CA3AF", margin: "10px 0" }}>
+                    Para cada producto que lleva helado, esta es la proporción de su coste que corresponde al
+                    helado (según el escandallo), aplicada a la facturación real del producto en el periodo.
+                    Es la lista que pediste para poder revisar cada imputación.
+                  </p>
+                  <div className="il-costo-scroll" style={{ overflowX: "auto", border: "1px solid #ECE4D6", borderRadius: 10 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ background: "#1F2937", color: "white", textAlign: "left" }}>
+                          <th style={{ padding: "8px 12px", fontWeight: 600 }}>Producto</th>
+                          <th style={{ padding: "8px 12px", fontWeight: 600, textAlign: "right" }}>% coste = helado</th>
+                          <th style={{ padding: "8px 12px", fontWeight: 600, textAlign: "right" }}>Facturación</th>
+                          <th style={{ padding: "8px 12px", fontWeight: 600, textAlign: "right" }}>€ imputados a helado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {results.imputacionRows.map((r, i) => (
+                          <tr key={i} style={{ background: i % 2 ? "#FBF8F2" : "white", borderTop: "1px solid #F1EBDD" }}>
+                            <td style={{ padding: "7px 12px" }}>{r.producto}</td>
+                            <td style={{ padding: "7px 12px", textAlign: "right", color: "#78716C" }}>{fmtPct(r.proporcionMatch.proporcion * 100)}</td>
+                            <td style={{ padding: "7px 12px", textAlign: "right", color: "#78716C" }}>{fmtEUR(r.importe)}</td>
+                            <td style={{ padding: "7px 12px", textAlign: "right", fontWeight: 600 }}>{fmtEUR(r.importeImputadoHelado)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Base de escandallos */}
