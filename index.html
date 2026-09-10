@@ -277,6 +277,15 @@ const MATERIAL_CREPS = {
   "crep deliziosa": 1,
 };
 
+// Precio de compra de cada unidad de materia prima base (para valorar el consumo real en €).
+const PRECIO_UNITARIO = {
+  litros: 7.288,
+  gofres: 0.4871,
+  macarons: 0.5768,
+  creps: 0.5430,
+  macaronsGrandiosos: 1.2583,
+};
+
 const ESCANDALLO_DETALLE = {
   "CONO PICCOLO": { costeTotal: 1.2175, ingredientes: [{ ingrediente: "HELADO", cantidad: 130.0, unidad: "g", costeUnidad: 0.008282, costeTotal: 1.076636 }, { ingrediente: "BARQUILLO", cantidad: 1.0, unidad: "barquillo", costeUnidad: 0.087361, costeTotal: 0.087361 }, { ingrediente: "CUCHARA", cantidad: 1.0, unidad: "cuchara", costeUnidad: 0.019444, costeTotal: 0.019444 }, { ingrediente: "PAPEL CONO", cantidad: 1.0, unidad: "papel cono", costeUnidad: 0.01845, costeTotal: 0.01845 }, { ingrediente: "SERVILLETA", cantidad: 1.0, unidad: "servilleta", costeUnidad: 0.015625, costeTotal: 0.015625 }] },
   "CONO NORMALE": { costeTotal: 1.5891, ingredientes: [{ ingrediente: "HELADO", cantidad: 174.0, unidad: "g", costeUnidad: 0.008282, costeTotal: 1.441036 }, { ingrediente: "BARQUILLO", cantidad: 1.0, unidad: "barquillo", costeUnidad: 0.094545, costeTotal: 0.094545 }, { ingrediente: "CUCHARA", cantidad: 1.0, unidad: "cuchara", costeUnidad: 0.019444, costeTotal: 0.019444 }, { ingrediente: "PAPEL CONO", cantidad: 1.0, unidad: "papel cono", costeUnidad: 0.01845, costeTotal: 0.01845 }, { ingrediente: "SERVILLETA", cantidad: 1.0, unidad: "servilleta", costeUnidad: 0.015625, costeTotal: 0.015625 }] },
@@ -856,6 +865,17 @@ function CosteTeoricoApp() {
     const consumoTeoricoGofres = sumMaterial("gofresUd");
     const consumoTeoricoCreps = sumMaterial("crepsUd");
 
+    // Facturación de cada "familia de materia prima" en el periodo (todos los productos que
+    // llevan esa materia prima, tengan o no unidades registradas), para calcular % de consumo sobre venta.
+    function familiaImporte(matchKey) {
+      return rows.filter((r) => r[matchKey] !== null && r[matchKey] !== undefined).reduce((a, r) => a + r.importe, 0);
+    }
+    const ventaFamiliaHelado = rows.filter((r) => r.proporcionMatch).reduce((a, r) => a + r.importe, 0);
+    const ventaFamiliaMacarons = familiaImporte("macaronsUd");
+    const ventaFamiliaMacaronsGrandiosos = familiaImporte("macaronsGrandiososUd");
+    const ventaFamiliaGofres = familiaImporte("gofresUd");
+    const ventaFamiliaCreps = familiaImporte("crepsUd");
+
     return {
       rows, totalImporte, importeConCoste, costeTotal, cobertura, ratioMedio, unmatchedCount,
       heladoRows: heladoConUnidades.sort((a, b) => b.gramosHeladoTotal - a.gramosHeladoTotal),
@@ -863,6 +883,7 @@ function CosteTeoricoApp() {
       gramosHeladoTotal, litrosHelado,
       imputacionRows, totalImputadoHelado,
       consumoTeoricoMacarons, consumoTeoricoMacaronsGrandiosos, consumoTeoricoGofres, consumoTeoricoCreps,
+      ventaFamiliaHelado, ventaFamiliaMacarons, ventaFamiliaMacaronsGrandiosos, ventaFamiliaGofres, ventaFamiliaCreps,
     };
   }, [parsedRows, resolveProduct, resolveHelado, resolveProporcion]);
 
@@ -875,18 +896,21 @@ function CosteTeoricoApp() {
     const consumoRealGofres = invInicial.gofres + Number(compras.gofres || 0) - invFinal.gofres;
     const consumoRealCreps = invInicial.creps + Number(compras.creps || 0) - invFinal.creps;
 
-    function compara(real, teorico) {
+    function compara(real, teorico, precioUnitario, ventaFamilia) {
       const delta = real - teorico;
       const deltaPct = teorico !== 0 ? (delta / teorico) * 100 : null;
-      return { real, teorico, delta, deltaPct };
+      const consumoRealEuros = real * precioUnitario;
+      const pctSobreVentaGlobal = results.totalImporte > 0 ? (consumoRealEuros / results.totalImporte) * 100 : null;
+      const pctSobreVentaFamilia = ventaFamilia > 0 ? (consumoRealEuros / ventaFamilia) * 100 : null;
+      return { real, teorico, delta, deltaPct, consumoRealEuros, pctSobreVentaGlobal, pctSobreVentaFamilia, ventaFamilia };
     }
 
     return {
-      litros: compara(consumoRealLitros, results.litrosHelado),
-      macarons: compara(consumoRealMacarons, results.consumoTeoricoMacarons.total),
-      macaronsGrandiosos: compara(consumoRealMacaronsGrandiosos, results.consumoTeoricoMacaronsGrandiosos.total),
-      gofres: compara(consumoRealGofres, results.consumoTeoricoGofres.total),
-      creps: compara(consumoRealCreps, results.consumoTeoricoCreps.total),
+      litros: compara(consumoRealLitros, results.litrosHelado, PRECIO_UNITARIO.litros, results.ventaFamiliaHelado),
+      macarons: compara(consumoRealMacarons, results.consumoTeoricoMacarons.total, PRECIO_UNITARIO.macarons, results.ventaFamiliaMacarons),
+      macaronsGrandiosos: compara(consumoRealMacaronsGrandiosos, results.consumoTeoricoMacaronsGrandiosos.total, PRECIO_UNITARIO.macaronsGrandiosos, results.ventaFamiliaMacaronsGrandiosos),
+      gofres: compara(consumoRealGofres, results.consumoTeoricoGofres.total, PRECIO_UNITARIO.gofres, results.ventaFamiliaGofres),
+      creps: compara(consumoRealCreps, results.consumoTeoricoCreps.total, PRECIO_UNITARIO.creps, results.ventaFamiliaCreps),
     };
   }, [results, invInicial, invFinal, compras]);
 
@@ -1467,7 +1491,8 @@ function CosteTeoricoApp() {
             {costeReal ? (
               <>
                 <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Real vs. Teórico — de golpe</div>
-                <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, overflow: "hidden", marginBottom: 22 }}>
+                <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, overflow: "hidden", marginBottom: 10 }}>
+                  <div className="il-costo-scroll" style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                     <thead>
                       <tr style={{ background: "#1F2937", color: "white", textAlign: "left" }}>
@@ -1475,6 +1500,9 @@ function CosteTeoricoApp() {
                         <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Consumo teórico</th>
                         <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Consumo real</th>
                         <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Diferencia</th>
+                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Consumo real (€)</th>
+                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>% s/ venta global</th>
+                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>% s/ venta de la familia</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1500,12 +1528,24 @@ function CosteTeoricoApp() {
                                 </span>
                               )}
                             </td>
+                            <td style={{ padding: "10px 14px", textAlign: "right" }}>{fmtEUR(c.consumoRealEuros)}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600 }}>{fmtPct(c.pctSobreVentaGlobal)}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600 }}>{fmtPct(c.pctSobreVentaFamilia)}</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
+                <p style={{ fontSize: 11.5, color: "#9CA3AF", marginBottom: 10 }}>
+                  "Consumo real (€)" = consumo real en unidades físicas × precio de compra por unidad
+                  (helado {fmtEUR(PRECIO_UNITARIO.litros)}/L · macaron {fmtEUR(PRECIO_UNITARIO.macarons)} ·
+                  macaron grandioso {fmtEUR(PRECIO_UNITARIO.macaronsGrandiosos)} · gofre {fmtEUR(PRECIO_UNITARIO.gofres)} ·
+                  crep {fmtEUR(PRECIO_UNITARIO.creps)}). "% s/ venta global" es sobre la facturación total del
+                  periodo ({fmtEUR(results.totalImporte)}); "% s/ venta de la familia" es sobre la facturación
+                  de solo los productos que llevan esa materia prima.
+                </p>
                 <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 22 }}>
                   <span style={{ color: "#B91C1C", fontWeight: 700 }}>Rojo</span> = has consumido más materia prima de la que las
                   ventas justifican (posible merma, desperdicio o error de inventario/compras). {" "}
