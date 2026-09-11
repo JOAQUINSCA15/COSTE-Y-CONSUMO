@@ -563,6 +563,118 @@ function sumaInventarios(files) {
   return { totalLitros, macarons, gofres, creps, macaronsGrandiosos, nHojas: todasLasHojas.length, fechaMin, fechaMax, hojas: todasLasHojas };
 }
 
+// ---------------------------------------------------------------------------
+// Lectura de FACTURAS DE PROVEEDOR en PDF (p. ej. "-18° SAS"), para "Compras del periodo".
+// Carga pdf.js bajo demanda desde cdnjs (no es una librería disponible para import estático).
+// ---------------------------------------------------------------------------
+let _pdfjsLoadPromise = null;
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (_pdfjsLoadPromise) return _pdfjsLoadPromise;
+  _pdfjsLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
+    script.onload = () => {
+      try {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+        resolve(window.pdfjsLib);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    script.onerror = () => reject(new Error("no se pudo cargar pdf.js desde cdnjs.cloudflare.com"));
+    document.head.appendChild(script);
+  });
+  return _pdfjsLoadPromise;
+}
+
+// Extrae el texto de un PDF, reconstruyendo líneas aproximadas por coordenada Y.
+async function extractPdfText(file) {
+  const pdfjsLib = await loadPdfJs();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let fullText = "";
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    let lastY = null;
+    let line = "";
+    const lines = [];
+    for (const item of content.items) {
+      const y = item.transform[5];
+      if (lastY !== null && Math.abs(y - lastY) > 2) {
+        lines.push(line);
+        line = "";
+      }
+      line += (line ? " " : "") + item.str;
+      lastY = y;
+    }
+    if (line) lines.push(line);
+    fullText += lines.join("\n") + "\n";
+  }
+  return fullText;
+}
+
+// Interpreta el texto de una factura de proveedor: detecta líneas de helado (litros),
+// macarons y gofres/creps (cajas), a partir del formato visto en las facturas de "-18° SAS".
+// Cantidad (Qté) se distingue del resto de importes porque usa punto decimal (10.00),
+// mientras que los precios usan coma decimal (36,44) — es la pista más fiable de la línea.
+function parseFacturaText(text) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const detected = [];
+  const ignoradas = [];
+  const noReconocidas = [];
+
+  for (const line of lines) {
+    if (/TRANSGT|freight|transport/i.test(line)) {
+      ignoradas.push(line);
+      continue;
+    }
+    const m = line.match(/^(\S+)\s+(.+?)\s+(\d+\.\d{2})\s+(\d+,\d{2})/);
+    if (!m) continue;
+    const referencia = m[1];
+    const designacion = m[2];
+    const cantidad = parseFloat(m[3]);
+    if (!cantidad) continue;
+
+    const mLitros = designacion.match(/(\d+(?:[.,]\d+)?)\s*(?:litros?|litres?)/i);
+    const mBox = designacion.match(/\((\d+)\s*x\s*(\d+)\s*ud\)/i);
+    const mUd = designacion.match(/\((\d+)\s*ud\)/i);
+
+    let categoria = null, valor = null, detalle = "";
+    if (mLitros) {
+      const tam = parseFloat(mLitros[1].replace(",", "."));
+      categoria = "litrosHelado";
+      valor = cantidad * tam;
+      detalle = `${cantidad} × ${tam} L`;
+    } else if (/macaron/i.test(designacion) && mBox) {
+      categoria = "macarons";
+      valor = cantidad * parseInt(mBox[1], 10) * parseInt(mBox[2], 10);
+      detalle = `${cantidad} caja(s) × ${mBox[1]}×${mBox[2]} ud.`;
+    } else if (/gofre|gaufre/i.test(designacion) && mUd) {
+      categoria = "gofres";
+      valor = cantidad * parseInt(mUd[1], 10);
+      detalle = `${cantidad} caja(s) × ${mUd[1]} ud.`;
+    } else if (/crep|cr[eê]pe/i.test(designacion) && mUd) {
+      categoria = "creps";
+      valor = cantidad * parseInt(mUd[1], 10);
+      detalle = `${cantidad} caja(s) × ${mUd[1]} ud.`;
+    } else if (/macaron|gofre|gaufre|crep|cr[eê]pe/i.test(designacion)) {
+      noReconocidas.push({ referencia, designacion, cantidad });
+      continue;
+    } else {
+      continue;
+    }
+    detected.push({ referencia, designacion, cantidad, categoria, valor, detalle });
+  }
+
+  const totales = { litrosHelado: 0, macarons: 0, gofres: 0, creps: 0 };
+  for (const d of detected) totales[d.categoria] += d.valor;
+
+  return { detected, ignoradas, noReconocidas, totales };
+}
+
 function parseSalesInput(text) {
   const lines = text.split("\n").map((l) => l.replace(/\r/, "")).filter((l) => l.trim() !== "");
   const rows = [];
@@ -690,10 +802,16 @@ function CosteTeoricoApp() {
   const [activeTab, setActiveTab] = useState("teorico"); // "teorico" | "real"
   const [invInicialFiles, setInvInicialFiles] = useState([]); // [{fileName, sheets:[{sheetName, parsed}]}]
   const [invInicialError, setInvInicialError] = useState("");
+  const [invInicialManual, setInvInicialManual] = useState({ totalLitros: 0, macarons: 0, gofres: 0, creps: 0, macaronsGrandiosos: 0 });
   const [invFinalFiles, setInvFinalFiles] = useState([]);
   const [invFinalError, setInvFinalError] = useState("");
+  const [invFinalManual, setInvFinalManual] = useState({ totalLitros: 0, macarons: 0, gofres: 0, creps: 0, macaronsGrandiosos: 0 });
   const [showCompras, setShowCompras] = useState(false);
   const [compras, setCompras] = useState({ litrosHelado: 0, macarons: 0, gofres: 0, creps: 0, macaronsGrandiosos: 0 });
+  const [facturaPreviews, setFacturaPreviews] = useState([]); // pendientes de revisar
+  const [facturasConfirmadas, setFacturasConfirmadas] = useState([]); // ya sumadas a compras
+  const [facturaLoading, setFacturaLoading] = useState(false);
+  const [facturaError, setFacturaError] = useState("");
   const [showImputacion, setShowImputacion] = useState(false);
   const [showMacarons, setShowMacarons] = useState(false);
   const [showMacaronsGrandiosos, setShowMacaronsGrandiosos] = useState(false);
@@ -912,13 +1030,33 @@ function CosteTeoricoApp() {
     };
   }, [parsedRows, resolveProduct, resolveHelado, resolveProporcion]);
 
+  function combineInventario(files, manual) {
+    const agg = files.length
+      ? sumaInventarios(files)
+      : { totalLitros: 0, macarons: 0, gofres: 0, creps: 0, macaronsGrandiosos: 0, nHojas: 0, fechaMin: null, fechaMax: null, hojas: [] };
+    const manualActive = Object.values(manual).some((v) => Number(v) > 0);
+    if (files.length === 0 && !manualActive) return null;
+    return {
+      totalLitros: agg.totalLitros + (Number(manual.totalLitros) || 0),
+      macarons: agg.macarons + (Number(manual.macarons) || 0),
+      gofres: agg.gofres + (Number(manual.gofres) || 0),
+      creps: agg.creps + (Number(manual.creps) || 0),
+      macaronsGrandiosos: agg.macaronsGrandiosos + (Number(manual.macaronsGrandiosos) || 0),
+      nHojas: agg.nHojas,
+      fechaMin: agg.fechaMin,
+      fechaMax: agg.fechaMax,
+      hojas: agg.hojas,
+      manualActive,
+    };
+  }
+
   const invInicial = useMemo(
-    () => (invInicialFiles.length ? sumaInventarios(invInicialFiles) : null),
-    [invInicialFiles]
+    () => combineInventario(invInicialFiles, invInicialManual),
+    [invInicialFiles, invInicialManual]
   );
   const invFinal = useMemo(
-    () => (invFinalFiles.length ? sumaInventarios(invFinalFiles) : null),
-    [invFinalFiles]
+    () => combineInventario(invFinalFiles, invFinalManual),
+    [invFinalFiles, invFinalManual]
   );
 
   const costeReal = useMemo(() => {
@@ -1052,6 +1190,57 @@ function CosteTeoricoApp() {
   const handleRemoveInventarioFile = (cual, fileName) => {
     const setFiles = cual === "inicial" ? setInvInicialFiles : setInvFinalFiles;
     setFiles((prev) => prev.filter((f) => f.fileName !== fileName));
+  };
+
+  const handleFacturaUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setFacturaError("");
+    setFacturaLoading(true);
+    const nuevas = [];
+    const errores = [];
+    for (const file of files) {
+      try {
+        const text = await extractPdfText(file);
+        const parsed = parseFacturaText(text);
+        nuevas.push({ fileName: file.name, ...parsed });
+      } catch (err) {
+        errores.push(`${file.name}: ${err.message}`);
+      }
+    }
+    if (nuevas.length > 0) setFacturaPreviews((prev) => [...prev, ...nuevas]);
+    if (errores.length > 0) setFacturaError(errores.join(" · "));
+    setFacturaLoading(false);
+    e.target.value = "";
+  };
+
+  const handleConfirmarFactura = (idx) => {
+    const f = facturaPreviews[idx];
+    setCompras((c) => ({
+      ...c,
+      litrosHelado: c.litrosHelado + f.totales.litrosHelado,
+      macarons: c.macarons + f.totales.macarons,
+      gofres: c.gofres + f.totales.gofres,
+      creps: c.creps + f.totales.creps,
+    }));
+    setFacturasConfirmadas((prev) => [...prev, f]);
+    setFacturaPreviews((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleDescartarFacturaPreview = (idx) => {
+    setFacturaPreviews((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleQuitarFacturaConfirmada = (idx) => {
+    const f = facturasConfirmadas[idx];
+    setCompras((c) => ({
+      ...c,
+      litrosHelado: c.litrosHelado - f.totales.litrosHelado,
+      macarons: c.macarons - f.totales.macarons,
+      gofres: c.gofres - f.totales.gofres,
+      creps: c.creps - f.totales.creps,
+    }));
+    setFacturasConfirmadas((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const handleManualMap = async (productoOriginal, escandalloElegido) => {
@@ -1493,9 +1682,9 @@ function CosteTeoricoApp() {
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginBottom: 18 }}>
               {[
-                { key: "inicial", label: "Inventario inicial", files: invInicialFiles, inv: invInicial, err: invInicialError },
-                { key: "final", label: "Inventario final", files: invFinalFiles, inv: invFinal, err: invFinalError },
-              ].map(({ key, label, files, inv, err }) => (
+                { key: "inicial", label: "Inventario inicial", files: invInicialFiles, inv: invInicial, err: invInicialError, manual: invInicialManual, setManual: setInvInicialManual },
+                { key: "final", label: "Inventario final", files: invFinalFiles, inv: invFinal, err: invFinalError, manual: invFinalManual, setManual: setInvFinalManual },
+              ].map(({ key, label, files, inv, err, manual, setManual }) => (
                 <div key={key} style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 18 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>{label}</div>
                   <label
@@ -1540,10 +1729,38 @@ function CosteTeoricoApp() {
                     </div>
                   )}
 
+                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid #F1EBDD" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#78716C", marginBottom: 8 }}>
+                      + Entrada manual {files.length > 0 ? "(se suma a los archivos)" : "(si no tienes archivo)"}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {[
+                        ["totalLitros", "Litros helado"],
+                        ["macarons", "Macarons"],
+                        ["macaronsGrandiosos", "Mac. Grandiosos"],
+                        ["gofres", "Gofres"],
+                        ["creps", "Creps"],
+                      ].map(([k, lbl]) => (
+                        <div key={k}>
+                          <label style={{ display: "block", fontSize: 11, color: "#9CA3AF", marginBottom: 2 }}>{lbl}</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={manual[k]}
+                            onChange={(e) => setManual((m) => ({ ...m, [k]: e.target.value === "" ? 0 : parseFloat(e.target.value) }))}
+                            style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E0D5", borderRadius: 6, padding: "5px 8px", fontSize: 12.5, background: "#FFFDF9" }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   {inv && (
                     <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid #F1EBDD", fontSize: 12.5, color: "#374151", lineHeight: 1.7 }}>
                       <div>
                         <b>{inv.nHojas} tienda{inv.nHojas !== 1 ? "s" : ""} sumada{inv.nHojas !== 1 ? "s" : ""}</b>
+                        {inv.manualActive ? " + entrada manual" : ""}
                       </div>
                       <div>
                         <b>Fecha de recuento:</b>{" "}
@@ -1601,6 +1818,121 @@ function CosteTeoricoApp() {
                       />
                     </div>
                   ))}
+                </div>
+              )}
+
+              {showCompras && (
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #F1EBDD" }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 6 }}>📄 Facturas de proveedor</div>
+                  <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 10 }}>
+                    Sube las facturas del periodo (PDF) y las interpreto automáticamente (litros de helado por
+                    "X litros", macarons por "(NxMud)", gofres/creps por "(Nud)"). Revisa cada una antes de
+                    sumarla — los importes de arriba se actualizan solo cuando confirmas.
+                  </p>
+                  <label
+                    htmlFor="factura-pdf-input"
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer",
+                      background: "#FEF3E7", border: "1px solid #F5D9AE", borderRadius: 9,
+                      padding: "8px 14px", fontSize: 13, fontWeight: 600, color: "#92400E",
+                    }}
+                  >
+                    {facturaLoading ? "Leyendo…" : "📎 Cargar factura(s) PDF"}
+                  </label>
+                  <input
+                    id="factura-pdf-input"
+                    type="file"
+                    accept=".pdf"
+                    multiple
+                    disabled={facturaLoading}
+                    onChange={handleFacturaUpload}
+                    style={{ display: "none" }}
+                  />
+                  {facturaError && <div style={{ marginTop: 8, fontSize: 12.5, color: "#B91C1C" }}>{facturaError}</div>}
+
+                  {facturaPreviews.map((f, idx) => (
+                    <div key={idx} style={{ marginTop: 14, border: "1px solid #F5D9AE", background: "#FFFBF3", borderRadius: 10, padding: 14 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>📄 {f.fileName} <span style={{ fontWeight: 400, color: "#9CA3AF" }}>— pendiente de revisar</span></div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button
+                            onClick={() => handleConfirmarFactura(idx)}
+                            style={{ background: "#15803D", color: "white", border: "none", borderRadius: 7, padding: "6px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}
+                          >
+                            ✓ Confirmar y sumar
+                          </button>
+                          <button
+                            onClick={() => handleDescartarFacturaPreview(idx)}
+                            style={{ background: "none", border: "1px solid #E5E0D5", color: "#78716C", borderRadius: 7, padding: "6px 14px", fontSize: 12.5, cursor: "pointer" }}
+                          >
+                            Descartar
+                          </button>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12.5, marginBottom: 10, color: "#374151" }}>
+                        {f.totales.litrosHelado > 0 && <span>🍦 {f.totales.litrosHelado.toFixed(2)} L</span>}
+                        {f.totales.macarons > 0 && <span>🍬 {f.totales.macarons} macarons</span>}
+                        {f.totales.gofres > 0 && <span>🧇 {f.totales.gofres} gofres</span>}
+                        {f.totales.creps > 0 && <span>🥞 {f.totales.creps} creps</span>}
+                        {f.totales.litrosHelado === 0 && f.totales.macarons === 0 && f.totales.gofres === 0 && f.totales.creps === 0 && (
+                          <span style={{ color: "#B91C1C" }}>No se ha detectado helado, macarons, gofres ni creps en esta factura.</span>
+                        )}
+                      </div>
+
+                      {f.detected.length > 0 && (
+                        <div className="il-costo-scroll" style={{ overflowX: "auto", border: "1px solid #ECE4D6", borderRadius: 8, marginBottom: f.noReconocidas.length ? 8 : 0 }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+                            <thead>
+                              <tr style={{ background: "#1F2937", color: "white", textAlign: "left" }}>
+                                <th style={{ padding: "5px 10px" }}>Línea</th>
+                                <th style={{ padding: "5px 10px" }}>Categoría</th>
+                                <th style={{ padding: "5px 10px", textAlign: "right" }}>Cálculo</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {f.detected.map((d, i) => (
+                                <tr key={i} style={{ borderTop: "1px solid #F1EBDD" }}>
+                                  <td style={{ padding: "4px 10px" }}>{d.designacion}</td>
+                                  <td style={{ padding: "4px 10px", color: "#78716C" }}>{d.categoria}</td>
+                                  <td style={{ padding: "4px 10px", textAlign: "right", fontWeight: 600 }}>{d.detalle} = {d.valor.toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      {f.noReconocidas.length > 0 && (
+                        <div style={{ fontSize: 11.5, color: "#B91C1C" }}>
+                          ⚠ {f.noReconocidas.length} línea{f.noReconocidas.length !== 1 ? "s" : ""} de macaron/gofre/crep detectada{f.noReconocidas.length !== 1 ? "s" : ""} pero
+                          sin poder calcular el formato de caja: {f.noReconocidas.map((n) => `"${n.designacion}"`).join(", ")}. No se ha sumado — revísala a mano.
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {facturasConfirmadas.length > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#78716C", marginBottom: 4 }}>Facturas ya sumadas:</div>
+                      {facturasConfirmadas.map((f, idx) => (
+                        <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "#78716C", padding: "3px 0" }}>
+                          <span>
+                            ✓ {f.fileName} — {f.totales.litrosHelado > 0 ? `${f.totales.litrosHelado.toFixed(2)} L` : ""}
+                            {f.totales.macarons > 0 ? ` · ${f.totales.macarons} macarons` : ""}
+                            {f.totales.gofres > 0 ? ` · ${f.totales.gofres} gofres` : ""}
+                            {f.totales.creps > 0 ? ` · ${f.totales.creps} creps` : ""}
+                          </span>
+                          <button
+                            onClick={() => handleQuitarFacturaConfirmada(idx)}
+                            style={{ background: "none", border: "none", color: "#B91C1C", cursor: "pointer", fontSize: 13, padding: "0 4px" }}
+                            title="Quitar"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
