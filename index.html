@@ -1072,9 +1072,15 @@ function CosteTeoricoApp() {
       const delta = real - teorico;
       const deltaPct = teorico !== 0 ? (delta / teorico) * 100 : null;
       const consumoRealEuros = real * precioUnitario;
+      const consumoTeoricoEuros = teorico * precioUnitario;
       const pctSobreVentaGlobal = results.totalImporte > 0 ? (consumoRealEuros / results.totalImporte) * 100 : null;
       const pctSobreVentaFamilia = ventaFamilia > 0 ? (consumoRealEuros / ventaFamilia) * 100 : null;
-      return { real, teorico, delta, deltaPct, consumoRealEuros, pctSobreVentaGlobal, pctSobreVentaFamilia, ventaFamilia };
+      const pctTeoricoSobreVentaGlobal = results.totalImporte > 0 ? (consumoTeoricoEuros / results.totalImporte) * 100 : null;
+      const pctTeoricoSobreVentaFamilia = ventaFamilia > 0 ? (consumoTeoricoEuros / ventaFamilia) * 100 : null;
+      return {
+        real, teorico, delta, deltaPct, consumoRealEuros, pctSobreVentaGlobal, pctSobreVentaFamilia,
+        consumoTeoricoEuros, pctTeoricoSobreVentaGlobal, pctTeoricoSobreVentaFamilia, ventaFamilia,
+      };
     }
 
     return {
@@ -1915,20 +1921,27 @@ function CosteTeoricoApp() {
                     <div style={{ marginTop: 14 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: "#78716C", marginBottom: 4 }}>Facturas ya sumadas:</div>
                       {facturasConfirmadas.map((f, idx) => (
-                        <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "#78716C", padding: "3px 0" }}>
-                          <span>
-                            ✓ {f.fileName} — {f.totales.litrosHelado > 0 ? `${f.totales.litrosHelado.toFixed(2)} L` : ""}
-                            {f.totales.macarons > 0 ? ` · ${f.totales.macarons} macarons` : ""}
-                            {f.totales.gofres > 0 ? ` · ${f.totales.gofres} gofres` : ""}
-                            {f.totales.creps > 0 ? ` · ${f.totales.creps} creps` : ""}
-                          </span>
-                          <button
-                            onClick={() => handleQuitarFacturaConfirmada(idx)}
-                            style={{ background: "none", border: "none", color: "#B91C1C", cursor: "pointer", fontSize: 13, padding: "0 4px" }}
-                            title="Quitar"
-                          >
-                            ×
-                          </button>
+                        <div key={idx} style={{ padding: "5px 0", borderBottom: idx < facturasConfirmadas.length - 1 ? "1px solid #F1EBDD" : "none" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "#78716C" }}>
+                            <span>
+                              ✓ {f.fileName} — {f.totales.litrosHelado > 0 ? `${f.totales.litrosHelado.toFixed(2)} L` : ""}
+                              {f.totales.macarons > 0 ? ` · ${f.totales.macarons} macarons` : ""}
+                              {f.totales.gofres > 0 ? ` · ${f.totales.gofres} gofres` : ""}
+                              {f.totales.creps > 0 ? ` · ${f.totales.creps} creps` : ""}
+                            </span>
+                            <button
+                              onClick={() => handleQuitarFacturaConfirmada(idx)}
+                              style={{ background: "none", border: "none", color: "#B91C1C", cursor: "pointer", fontSize: 13, padding: "0 4px" }}
+                              title="Quitar"
+                            >
+                              ×
+                            </button>
+                          </div>
+                          {f.noReconocidas && f.noReconocidas.length > 0 && (
+                            <div style={{ fontSize: 11, color: "#B91C1C", marginTop: 2, paddingLeft: 14 }}>
+                              ⚠ No sumadas: {f.noReconocidas.map((n) => `${n.designacion} (Qté ${n.cantidad})`).join("; ")}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1946,13 +1959,20 @@ function CosteTeoricoApp() {
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                     <thead>
                       <tr style={{ background: "#1F2937", color: "white", textAlign: "left" }}>
-                        <th style={{ padding: "10px 14px", fontWeight: 600 }}>Materia prima</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Consumo teórico</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Consumo real</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Diferencia</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Consumo real (€)</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>% s/ venta global</th>
-                        <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>% s/ venta de la familia</th>
+                        <th rowSpan={2} style={{ padding: "10px 14px", fontWeight: 600, verticalAlign: "bottom" }}>Materia prima</th>
+                        <th rowSpan={2} style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right", verticalAlign: "bottom" }}>Consumo teórico</th>
+                        <th rowSpan={2} style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right", verticalAlign: "bottom" }}>Consumo real</th>
+                        <th rowSpan={2} style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right", verticalAlign: "bottom" }}>Diferencia</th>
+                        <th colSpan={3} style={{ padding: "6px 14px", fontWeight: 600, textAlign: "center", borderBottom: "1px solid #374151" }}>Real, valorado en €</th>
+                        <th colSpan={3} style={{ padding: "6px 14px", fontWeight: 600, textAlign: "center", borderBottom: "1px solid #374151" }}>Teórico, valorado en €</th>
+                      </tr>
+                      <tr style={{ background: "#1F2937", color: "white", textAlign: "right" }}>
+                        <th style={{ padding: "6px 14px", fontWeight: 600 }}>€</th>
+                        <th style={{ padding: "6px 14px", fontWeight: 600 }}>% s/ familia</th>
+                        <th style={{ padding: "6px 14px", fontWeight: 600 }}>% s/ global</th>
+                        <th style={{ padding: "6px 14px", fontWeight: 600 }}>€</th>
+                        <th style={{ padding: "6px 14px", fontWeight: 600 }}>% s/ familia</th>
+                        <th style={{ padding: "6px 14px", fontWeight: 600 }}>% s/ global</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1979,8 +1999,11 @@ function CosteTeoricoApp() {
                               )}
                             </td>
                             <td style={{ padding: "10px 14px", textAlign: "right" }}>{fmtEUR(c.consumoRealEuros)}</td>
-                            <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600 }}>{fmtPct(c.pctSobreVentaGlobal)}</td>
                             <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600 }}>{fmtPct(c.pctSobreVentaFamilia)}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600 }}>{fmtPct(c.pctSobreVentaGlobal)}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right", color: "#78716C" }}>{fmtEUR(c.consumoTeoricoEuros)}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600, color: "#78716C" }}>{fmtPct(c.pctTeoricoSobreVentaFamilia)}</td>
+                            <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600, color: "#78716C" }}>{fmtPct(c.pctTeoricoSobreVentaGlobal)}</td>
                           </tr>
                         );
                       })}
@@ -1988,13 +2011,19 @@ function CosteTeoricoApp() {
                   </table>
                   </div>
                 </div>
-                <p style={{ fontSize: 11.5, color: "#9CA3AF", marginBottom: 10 }}>
-                  "Consumo real (€)" = consumo real en unidades físicas × precio de compra por unidad
-                  (helado {fmtEUR(PRECIO_UNITARIO.litros)}/L · macaron {fmtEUR(PRECIO_UNITARIO.macarons)} ·
-                  macaron grandioso {fmtEUR(PRECIO_UNITARIO.macaronsGrandiosos)} · gofre {fmtEUR(PRECIO_UNITARIO.gofres)} ·
-                  crep {fmtEUR(PRECIO_UNITARIO.creps)}). "% s/ venta global" es sobre la facturación total del
-                  periodo ({fmtEUR(results.totalImporte)}); "% s/ venta de la familia" es sobre la facturación
-                  de solo los productos que llevan esa materia prima.
+                <p style={{ fontSize: 11.5, color: "#9CA3AF", marginBottom: 6 }}>
+                  Precio de compra usado para valorar en €: helado {fmtEUR(PRECIO_UNITARIO.litros)}/L · macaron{" "}
+                  {fmtEUR(PRECIO_UNITARIO.macarons)} · macaron grandioso {fmtEUR(PRECIO_UNITARIO.macaronsGrandiosos)} ·
+                  gofre {fmtEUR(PRECIO_UNITARIO.gofres)} · crep {fmtEUR(PRECIO_UNITARIO.creps)}.
+                </p>
+                <p style={{ fontSize: 11.5, color: "#9CA3AF", marginBottom: 6 }}>
+                  <b>% s/ familia (real)</b> = (Valor inicial del stock + Valor de la compra del stock − Valor
+                  final del stock) ÷ Venta NETA de esa familia en el periodo ({fmtEUR(results.totalImporte)} es
+                  la venta neta global; cada familia tiene la suya, indicada en la sección de imputación/consumo
+                  correspondiente). <b>% s/ global</b> usa el mismo numerador, pero dividido entre la venta NETA
+                  total del periodo en vez de la de la familia. Las columnas "Teórico" repiten exactamente los
+                  mismos dos cocientes pero usando el consumo teórico (el que deberían haber generado las ventas)
+                  en vez del real, para poder comparar ambos de un vistazo.
                 </p>
                 <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 22 }}>
                   <span style={{ color: "#B91C1C", fontWeight: 700 }}>Rojo</span> = has consumido más materia prima de la que las
