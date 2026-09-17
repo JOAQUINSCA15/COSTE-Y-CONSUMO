@@ -473,6 +473,10 @@ const fmtPct = (v) =>
 
 const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda"];
 
+// Sube este número cada vez que se publique un cambio, para poder comprobar a simple
+// vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
+const IL_COSTO_VERSION = "2025-09-17.1";
+
 const TIENDAS = ["Todas las tiendas (sistema)", "Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
 const MESES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -502,13 +506,17 @@ function extractFullFormatRow(cells) {
 
 function parseWorkbookRows(aoa) {
   let rows = [];
-  let skipped = 0;
+  let skippedLines = [];
   for (const cells of aoa) {
     const r = extractFullFormatRow(cells);
-    if (r) rows.push(r);
-    else skipped++;
+    if (r) {
+      rows.push(r);
+    } else {
+      const raw = (cells || []).filter((c) => c !== null && c !== undefined && c !== "").join(" | ");
+      if (raw) skippedLines.push({ texto: raw, motivo: "cabecera, fila vacía o importe negativo" });
+    }
   }
-  return { rows, skipped };
+  return { rows, skipped: skippedLines.length, skippedLines };
 }
 
 // ---------------------------------------------------------------------------
@@ -547,6 +555,22 @@ function parseInventarioWorkbook(wb) {
     if (parsed.valido) sheets.push({ sheetName, parsed });
   }
   return sheets;
+}
+
+// Al guardar en storage, las fechas (objetos Date) se serializan como texto JSON;
+// al recuperarlas hay que reconstruir los objetos Date para que el resto de la app
+// (que usa .toLocaleDateString(), .getTime(), etc.) siga funcionando igual.
+function reviveInvFiles(files) {
+  return (files || []).map((f) => ({
+    ...f,
+    sheets: (f.sheets || []).map((s) => ({
+      ...s,
+      parsed: {
+        ...s.parsed,
+        fecha: s.parsed && s.parsed.fecha ? new Date(s.parsed.fecha) : null,
+      },
+    })),
+  }));
 }
 
 function sumaInventarios(files) {
@@ -639,8 +663,16 @@ function parseFacturaText(text) {
     if (!cantidad) continue;
 
     const mLitros = designacion.match(/(\d+(?:[.,]\d+)?)\s*(?:litros?|litres?)/i);
-    const mBox = designacion.match(/\((\d+)\s*x\s*(\d+)\s*ud\)/i);
-    const mUd = designacion.match(/\((\d+)\s*ud\)/i);
+    const mBox = designacion.match(/\((\d+)\s*x\s*(\d+)\s*(?:ud|pz|p)\)/i);
+    const mUd = designacion.match(/\((\d+)\s*(?:ud|pz|p)\)/i);
+    const esGrandioso = /grandios/i.test(designacion);
+    const refUp = referencia.toUpperCase();
+    // Solo se consideran macarons/gofres/creps si el CÓDIGO empieza por el prefijo del
+    // producto real — así los accesorios/consumibles que solo mencionan la palabra en el
+    // texto libre (cajas vacías, tenedores, cremas... "para gofres y crepes") no se cuelan.
+    const esCodigoMacaron = refUp.startsWith("MAC") && !refUp.startsWith("MACBOX");
+    const esCodigoGofre = refUp.startsWith("GAUFRE");
+    const esCodigoCrep = refUp.startsWith("CREPE");
 
     let categoria = null, valor = null, detalle = "";
     if (mLitros) {
@@ -648,19 +680,29 @@ function parseFacturaText(text) {
       categoria = "litrosHelado";
       valor = cantidad * tam;
       detalle = `${cantidad} × ${tam} L`;
-    } else if (/macaron/i.test(designacion) && mBox) {
+    } else if (esCodigoMacaron && esGrandioso && mBox) {
+      categoria = "macaronsGrandiosos";
+      valor = cantidad * parseInt(mBox[1], 10) * parseInt(mBox[2], 10);
+      detalle = `${cantidad} caja(s) × ${mBox[1]}×${mBox[2]} ud.`;
+    } else if (esCodigoMacaron && mBox) {
       categoria = "macarons";
       valor = cantidad * parseInt(mBox[1], 10) * parseInt(mBox[2], 10);
       detalle = `${cantidad} caja(s) × ${mBox[1]}×${mBox[2]} ud.`;
-    } else if (/gofre|gaufre/i.test(designacion) && mUd) {
+    } else if (esCodigoGofre && mUd) {
       categoria = "gofres";
       valor = cantidad * parseInt(mUd[1], 10);
       detalle = `${cantidad} caja(s) × ${mUd[1]} ud.`;
-    } else if (/crep|cr[eê]pe/i.test(designacion) && mUd) {
+    } else if (esCodigoCrep && mBox) {
+      categoria = "creps";
+      valor = cantidad * parseInt(mBox[1], 10) * parseInt(mBox[2], 10);
+      detalle = `${cantidad} caja(s) × ${mBox[1]}×${mBox[2]} ud.`;
+    } else if (esCodigoCrep && mUd) {
       categoria = "creps";
       valor = cantidad * parseInt(mUd[1], 10);
       detalle = `${cantidad} caja(s) × ${mUd[1]} ud.`;
-    } else if (/macaron|gofre|gaufre|crep|cr[eê]pe/i.test(designacion)) {
+    } else if (esCodigoMacaron || esCodigoGofre || esCodigoCrep) {
+      // el código SÍ es de un producto real de estas familias, pero no hemos podido
+      // extraer el formato de caja (p. ej. una variante de texto que no hemos visto aún)
       noReconocidas.push({ referencia, designacion, cantidad });
       continue;
     } else {
@@ -669,7 +711,7 @@ function parseFacturaText(text) {
     detected.push({ referencia, designacion, cantidad, categoria, valor, detalle });
   }
 
-  const totales = { litrosHelado: 0, macarons: 0, gofres: 0, creps: 0 };
+  const totales = { litrosHelado: 0, macarons: 0, macaronsGrandiosos: 0, gofres: 0, creps: 0 };
   for (const d of detected) totales[d.categoria] += d.valor;
 
   return { detected, ignoradas, noReconocidas, totales };
@@ -678,7 +720,7 @@ function parseFacturaText(text) {
 function parseSalesInput(text) {
   const lines = text.split("\n").map((l) => l.replace(/\r/, "")).filter((l) => l.trim() !== "");
   const rows = [];
-  let skipped = 0;
+  const skippedLines = [];
   for (const line of lines) {
     let cells = splitLine(line).map((c) => c.trim());
 
@@ -686,14 +728,14 @@ function parseSalesInput(text) {
     if (cells.length >= 9) {
       const r = extractFullFormatRow(cells);
       if (r) rows.push(r);
-      else skipped++;
+      else skippedLines.push({ texto: line, motivo: "cabecera, fila vacía o importe negativo" });
       continue;
     }
 
     // Formato simplificado: Producto, [Unidades,] Importe
     cells = cells.filter((c, i) => !(i > 0 && c === "" && cells.length > 3));
-    if (cells.length < 2) { skipped++; continue; }
-    if (HEADER_WORDS.some((w) => normalize(cells[0]).includes(w))) { skipped++; continue; }
+    if (cells.length < 2) { skippedLines.push({ texto: line, motivo: "menos de 2 columnas" }); continue; }
+    if (HEADER_WORDS.some((w) => normalize(cells[0]).includes(w))) { skippedLines.push({ texto: line, motivo: "fila de cabecera" }); continue; }
 
     let producto, unidades = null, importe = null;
     if (cells.length >= 3) {
@@ -704,10 +746,11 @@ function parseSalesInput(text) {
       producto = cells[0];
       importe = parseNumber(cells[1]);
     }
-    if (!producto || importe === null || importe < 0) { skipped++; continue; }
+    if (!producto || importe === null) { skippedLines.push({ texto: line, motivo: "no se ha podido interpretar el importe" }); continue; }
+    if (importe < 0) { skippedLines.push({ texto: line, motivo: "importe negativo (devolución/anulación)" }); continue; }
     rows.push({ producto, unidades, importe });
   }
-  return { rows, skipped };
+  return { rows, skipped: skippedLines.length, skippedLines };
 }
 
 // ---------------------------------------------------------------------------
@@ -791,6 +834,8 @@ function CosteTeoricoApp() {
   const [rawInput, setRawInput] = useState("");
   const [parsedRows, setParsedRows] = useState(null);
   const [skippedCount, setSkippedCount] = useState(0);
+  const [skippedLinesList, setSkippedLinesList] = useState([]);
+  const [showSkippedLines, setShowSkippedLines] = useState(false);
   const [selectedTienda, setSelectedTienda] = useState("");
   const [selectedMes, setSelectedMes] = useState("");
   const [tiendaWarning, setTiendaWarning] = useState(false);
@@ -825,32 +870,84 @@ function CosteTeoricoApp() {
   const [loaded, setLoaded] = useState(false);
   const [saveNote, setSaveNote] = useState("");
 
-  // Cargar equivalencias y ajustes guardados
+  // Cargar equivalencias, ajustes, inventarios y facturas guardados
   useEffect(() => {
     (async () => {
       try {
-        const a = await storage.get("il_costo_custom_aliases");
+        const a = await storage.get("custom_aliases", false);
         if (a && a.value) setCustomAliases(JSON.parse(a.value));
       } catch (e) {}
       try {
-        const r = await storage.get("il_costo_ratio_overrides");
+        const r = await storage.get("ratio_overrides", false);
         if (r && r.value) setRatioOverrides(JSON.parse(r.value));
+      } catch (e) {}
+      try {
+        const im = await storage.get("il_costo_inv_inicial_manual", false);
+        if (im && im.value) setInvInicialManual(JSON.parse(im.value));
+      } catch (e) {}
+      try {
+        const fm = await storage.get("il_costo_inv_final_manual", false);
+        if (fm && fm.value) setInvFinalManual(JSON.parse(fm.value));
+      } catch (e) {}
+      try {
+        const ifiles = await storage.get("il_costo_inv_inicial_files", false);
+        if (ifiles && ifiles.value) setInvInicialFiles(reviveInvFiles(JSON.parse(ifiles.value)));
+      } catch (e) {}
+      try {
+        const ffiles = await storage.get("il_costo_inv_final_files", false);
+        if (ffiles && ffiles.value) setInvFinalFiles(reviveInvFiles(JSON.parse(ffiles.value)));
+      } catch (e) {}
+      try {
+        const facts = await storage.get("il_costo_facturas_confirmadas", false);
+        if (facts && facts.value) setFacturasConfirmadas(JSON.parse(facts.value));
+      } catch (e) {}
+      try {
+        const c = await storage.get("il_costo_compras", false);
+        if (c && c.value) setCompras(JSON.parse(c.value));
       } catch (e) {}
       setLoaded(true);
     })();
   }, []);
 
+  useEffect(() => {
+    if (!loaded) return;
+    storage.set("il_costo_compras", JSON.stringify(compras), false).catch(() => {});
+  }, [compras, loaded]);
+
+  // Guardar automáticamente inventarios (manual + archivos) y facturas confirmadas cuando cambian.
+  // Se salta el primer render (antes de que termine de cargar lo persistido) para no sobrescribir con vacío.
+  useEffect(() => {
+    if (!loaded) return;
+    storage.set("il_costo_inv_inicial_manual", JSON.stringify(invInicialManual), false).catch(() => {});
+  }, [invInicialManual, loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    storage.set("il_costo_inv_final_manual", JSON.stringify(invFinalManual), false).catch(() => {});
+  }, [invFinalManual, loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    storage.set("il_costo_inv_inicial_files", JSON.stringify(invInicialFiles), false).catch(() => {});
+  }, [invInicialFiles, loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    storage.set("il_costo_inv_final_files", JSON.stringify(invFinalFiles), false).catch(() => {});
+  }, [invFinalFiles, loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    storage.set("il_costo_facturas_confirmadas", JSON.stringify(facturasConfirmadas), false).catch(() => {});
+  }, [facturasConfirmadas, loaded]);
+
   const persistAliases = useCallback(async (next) => {
     setCustomAliases(next);
     try {
-      await storage.set("il_costo_custom_aliases", JSON.stringify(next));
+      await storage.set("custom_aliases", JSON.stringify(next), false);
     } catch (e) {}
   }, []);
 
   const persistOverrides = useCallback(async (next) => {
     setRatioOverrides(next);
     try {
-      await storage.set("il_costo_ratio_overrides", JSON.stringify(next));
+      await storage.set("ratio_overrides", JSON.stringify(next), false);
     } catch (e) {}
   }, []);
 
@@ -1100,10 +1197,11 @@ function CosteTeoricoApp() {
     setTiendaWarning(false);
     setFileName("");
     setFileError("");
-    const { rows, skipped } = parseSalesInput(rawInput);
+    const { rows, skipped, skippedLines } = parseSalesInput(rawInput);
     if (rows.length === 0) return;
     setParsedRows((prev) => (prev ? [...prev, ...rows] : rows));
     setSkippedCount((prev) => prev + skipped);
+    setSkippedLinesList((prev) => [...prev, ...skippedLines.map((s) => ({ ...s, fuente: "Pegado manual" }))]);
     setVentasFuentes((prev) => [...prev, { label: `Pegado manual (${rows.length} líneas)`, n: rows.length }]);
     setRawInput("");
   };
@@ -1123,6 +1221,7 @@ function CosteTeoricoApp() {
     const nuevasFuentes = [];
     const erroresArchivo = [];
     let totalSkipped = 0;
+    const nuevasSkippedLines = [];
 
     for (const file of files) {
       try {
@@ -1130,13 +1229,14 @@ function CosteTeoricoApp() {
         const wb = XLSX.read(buf, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
-        const { rows, skipped } = parseWorkbookRows(aoa);
+        const { rows, skipped, skippedLines } = parseWorkbookRows(aoa);
         if (rows.length === 0) {
           erroresArchivo.push(`${file.name}: no se han encontrado filas válidas (¿formato correcto?)`);
           continue;
         }
         nuevasFilas.push(...rows);
         totalSkipped += skipped;
+        nuevasSkippedLines.push(...skippedLines.map((s) => ({ ...s, fuente: file.name })));
         nuevasFuentes.push({ label: `${file.name} (${rows.length} líneas)`, n: rows.length });
       } catch (err) {
         erroresArchivo.push(`${file.name}: ${err.message}`);
@@ -1146,6 +1246,7 @@ function CosteTeoricoApp() {
     if (nuevasFilas.length > 0) {
       setParsedRows((prev) => (prev ? [...prev, ...nuevasFilas] : nuevasFilas));
       setSkippedCount((prev) => prev + totalSkipped);
+      setSkippedLinesList((prev) => [...prev, ...nuevasSkippedLines]);
       setVentasFuentes((prev) => [...prev, ...nuevasFuentes]);
       setFileName(files[files.length - 1].name);
       setRawInput("");
@@ -1159,6 +1260,7 @@ function CosteTeoricoApp() {
   const handleVaciarVentas = () => {
     setParsedRows(null);
     setSkippedCount(0);
+    setSkippedLinesList([]);
     setFileName("");
     setFileError("");
     setVentasFuentes([]);
@@ -1226,6 +1328,7 @@ function CosteTeoricoApp() {
       ...c,
       litrosHelado: c.litrosHelado + f.totales.litrosHelado,
       macarons: c.macarons + f.totales.macarons,
+      macaronsGrandiosos: c.macaronsGrandiosos + f.totales.macaronsGrandiosos,
       gofres: c.gofres + f.totales.gofres,
       creps: c.creps + f.totales.creps,
     }));
@@ -1243,10 +1346,23 @@ function CosteTeoricoApp() {
       ...c,
       litrosHelado: c.litrosHelado - f.totales.litrosHelado,
       macarons: c.macarons - f.totales.macarons,
+      macaronsGrandiosos: c.macaronsGrandiosos - f.totales.macaronsGrandiosos,
       gofres: c.gofres - f.totales.gofres,
       creps: c.creps - f.totales.creps,
     }));
     setFacturasConfirmadas((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleVaciarCosteReal = () => {
+    setInvInicialFiles([]);
+    setInvFinalFiles([]);
+    setInvInicialManual({ totalLitros: 0, macarons: 0, gofres: 0, creps: 0, macaronsGrandiosos: 0 });
+    setInvFinalManual({ totalLitros: 0, macarons: 0, gofres: 0, creps: 0, macaronsGrandiosos: 0 });
+    setCompras({ litrosHelado: 0, macarons: 0, gofres: 0, creps: 0, macaronsGrandiosos: 0 });
+    setFacturasConfirmadas([]);
+    setFacturaPreviews([]);
+    setInvInicialError("");
+    setInvFinalError("");
   };
 
   const handleManualMap = async (productoOriginal, escandalloElegido) => {
@@ -1478,10 +1594,42 @@ function CosteTeoricoApp() {
             {parsedRows && (
               <span style={{ fontSize: 12.5, color: "#78716C" }}>
                 {parsedRows.length} línea{parsedRows.length !== 1 ? "s" : ""} acumulada{parsedRows.length !== 1 ? "s" : ""} en total
-                {skippedCount > 0 ? ` · ${skippedCount} ignorada${skippedCount !== 1 ? "s" : ""} (cabecera/devoluciones)` : ""}
+                {skippedCount > 0 && (
+                  <>
+                    {" · "}
+                    <button
+                      onClick={() => setShowSkippedLines((s) => !s)}
+                      style={{ background: "none", border: "none", padding: 0, color: "#B45309", cursor: "pointer", fontSize: 12.5, textDecoration: "underline" }}
+                    >
+                      {skippedCount} ignorada{skippedCount !== 1 ? "s" : ""} (ver detalle)
+                    </button>
+                  </>
+                )}
               </span>
             )}
           </div>
+          {showSkippedLines && skippedLinesList.length > 0 && (
+            <div className="il-costo-scroll" style={{ marginTop: 10, maxHeight: 220, overflowY: "auto", border: "1px solid #ECE4D6", borderRadius: 8 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+                <thead>
+                  <tr style={{ background: "#1F2937", color: "white", textAlign: "left", position: "sticky", top: 0 }}>
+                    <th style={{ padding: "5px 10px" }}>Línea original</th>
+                    <th style={{ padding: "5px 10px" }}>Motivo</th>
+                    <th style={{ padding: "5px 10px" }}>Fuente</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {skippedLinesList.map((s, i) => (
+                    <tr key={i} style={{ borderTop: "1px solid #F1EBDD", background: i % 2 ? "#FBF8F2" : "white" }}>
+                      <td style={{ padding: "4px 10px", fontFamily: "monospace", color: "#57534E" }}>{s.texto}</td>
+                      <td style={{ padding: "4px 10px", color: "#B45309" }}>{s.motivo}</td>
+                      <td style={{ padding: "4px 10px", color: "#9CA3AF" }}>{s.fuente}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           {ventasFuentes.length > 0 && (
             <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #F1EBDD" }}>
               {ventasFuentes.map((f, i) => (
@@ -1673,12 +1821,23 @@ function CosteTeoricoApp() {
         {/* Resultados: Coste Real */}
         {results && activeTab === "real" && (
           <div style={{ marginBottom: 28 }}>
-            <p style={{ fontSize: 13, color: "#57534E", lineHeight: 1.6, marginBottom: 18 }}>
+            <p style={{ fontSize: 13, color: "#57534E", lineHeight: 1.6, marginBottom: 6 }}>
               Compara el consumo <b>real</b> de materia prima (inventario inicial + compras − inventario final)
               con el consumo <b>teórico</b> que deberían haber generado las ventas de arriba. Sube los dos
               inventarios (misma plantilla que <code>INVENTARIO_FORMATO.xlsx</code>) y, si ha habido compras
               entre medias, indícalas en "Compras del periodo".
             </p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 8 }}>
+              <span style={{ fontSize: 11.5, color: "#9CA3AF" }}>
+                💾 Los inventarios y las facturas que sumes aquí se guardan solos — no hace falta que los vuelvas a subir la próxima vez que abras la app.
+              </span>
+              <button
+                onClick={handleVaciarCosteReal}
+                style={{ background: "none", border: "none", color: "#B91C1C", cursor: "pointer", fontSize: 12, textDecoration: "underline", whiteSpace: "nowrap" }}
+              >
+                Vaciar inventarios y facturas (nuevo periodo)
+              </button>
+            </div>
 
             {/* Subida de inventarios */}
             <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 10 }}>
@@ -1879,9 +2038,10 @@ function CosteTeoricoApp() {
                       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 12.5, marginBottom: 10, color: "#374151" }}>
                         {f.totales.litrosHelado > 0 && <span>🍦 {f.totales.litrosHelado.toFixed(2)} L</span>}
                         {f.totales.macarons > 0 && <span>🍬 {f.totales.macarons} macarons</span>}
+                        {f.totales.macaronsGrandiosos > 0 && <span>🍬 {f.totales.macaronsGrandiosos} mac. grandiosos</span>}
                         {f.totales.gofres > 0 && <span>🧇 {f.totales.gofres} gofres</span>}
                         {f.totales.creps > 0 && <span>🥞 {f.totales.creps} creps</span>}
-                        {f.totales.litrosHelado === 0 && f.totales.macarons === 0 && f.totales.gofres === 0 && f.totales.creps === 0 && (
+                        {f.totales.litrosHelado === 0 && f.totales.macarons === 0 && f.totales.macaronsGrandiosos === 0 && f.totales.gofres === 0 && f.totales.creps === 0 && (
                           <span style={{ color: "#B91C1C" }}>No se ha detectado helado, macarons, gofres ni creps en esta factura.</span>
                         )}
                       </div>
@@ -1926,6 +2086,7 @@ function CosteTeoricoApp() {
                             <span>
                               ✓ {f.fileName} — {f.totales.litrosHelado > 0 ? `${f.totales.litrosHelado.toFixed(2)} L` : ""}
                               {f.totales.macarons > 0 ? ` · ${f.totales.macarons} macarons` : ""}
+                              {f.totales.macaronsGrandiosos > 0 ? ` · ${f.totales.macaronsGrandiosos} mac. grandiosos` : ""}
                               {f.totales.gofres > 0 ? ` · ${f.totales.gofres} gofres` : ""}
                               {f.totales.creps > 0 ? ` · ${f.totales.creps} creps` : ""}
                             </span>
@@ -2163,6 +2324,9 @@ function CosteTeoricoApp() {
           Los nombres se cruzan de forma flexible (sin distinguir mayúsculas/acentos) y con las equivalencias
           confirmadas del análisis 2025. Las equivalencias manuales y ajustes de ratio que hagas aquí se
           guardan en este dispositivo para la próxima vez que abras la herramienta.
+        </p>
+        <p style={{ fontSize: 10.5, color: "#D6CFC0", marginTop: 10 }}>
+          Il Costo — versión {IL_COSTO_VERSION}
         </p>
       </div>
     </div>
