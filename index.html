@@ -475,7 +475,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-17.1";
+const IL_COSTO_VERSION = "2025-09-17.2";
 
 const TIENDAS = ["Todas las tiendas (sistema)", "Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
 const MESES = [
@@ -637,6 +637,14 @@ async function extractPdfText(file) {
     if (line) lines.push(line);
     fullText += lines.join("\n") + "\n";
   }
+  // Notas de pie de línea (certificación bio, contribución Eco-Emballage...) a veces aparecen
+  // en el PDF entre el nombre del producto y las cifras de esa misma fila (el orden interno de
+  // los objetos de texto del PDF no siempre coincide con el orden visual de lectura), lo que
+  // rompe el patrón "producto ... cantidad ... precio" de una línea. Se eliminan del texto
+  // completo (antes de trocearlo en líneas) para que la fila del producto quede intacta.
+  fullText = fullText
+    .replace(/Produit\s+issu\s+de\s+l['’]agriculture\s+biologique,?\s*certifi[ée]\s*par\s*Ecocert\s*FR-?BIO-?0?1\.?/gi, " ")
+    .replace(/Prix\s+incluant\s+la\s+contribution\s+Eco-?Emballage\.?/gi, " ");
   return fullText;
 }
 
@@ -645,7 +653,19 @@ async function extractPdfText(file) {
 // Cantidad (Qté) se distingue del resto de importes porque usa punto decimal (10.00),
 // mientras que los precios usan coma decimal (36,44) — es la pista más fiable de la línea.
 function parseFacturaText(text) {
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const rawLines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  // Cuando una nota de pie (certificación bio, etc.) queda en su propia línea entre el nombre
+  // del producto y sus cifras, la fila se parte en dos: "REF Producto..." y, más abajo,
+  // "Qté PU HT ... " sueltas. Aquí se recompone: una línea que empieza directamente por el
+  // patrón "cantidad precio" (sin código de referencia delante) se pega a la línea anterior.
+  const lines = [];
+  for (const raw of rawLines) {
+    if (/^\d+\.\d{2}\s+\d+,\d{2}/.test(raw) && lines.length > 0 && !/\d+\.\d{2}\s+\d+,\d{2}/.test(lines[lines.length - 1])) {
+      lines[lines.length - 1] = lines[lines.length - 1] + " " + raw;
+    } else {
+      lines.push(raw);
+    }
+  }
   const detected = [];
   const ignoradas = [];
   const noReconocidas = [];
@@ -655,7 +675,12 @@ function parseFacturaText(text) {
       ignoradas.push(line);
       continue;
     }
-    const m = line.match(/^(\S+)\s+(.+?)\s+(\d+\.\d{2})\s+(\d+,\d{2})/);
+    let m = line.match(/^(\S+)\s+(.+?)\s+(\d+\.\d{2})\s+(\d+,\d{2})/);
+    if (!m) {
+      // Segundo intento: si queda algún resto de texto delante de la línea (p. ej. de una nota
+      // de pie mal encajada), busca el patrón en cualquier posición, no solo al principio.
+      m = line.match(/(\S+)\s+(.+?)\s+(\d+\.\d{2})\s+(\d+,\d{2})/);
+    }
     if (!m) continue;
     const referencia = m[1];
     const designacion = m[2];
