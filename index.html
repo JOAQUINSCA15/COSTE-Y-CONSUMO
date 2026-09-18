@@ -475,7 +475,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-17.2";
+const IL_COSTO_VERSION = "2025-09-17.3";
 
 const TIENDAS = ["Todas las tiendas (sistema)", "Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
 const MESES = [
@@ -687,7 +687,10 @@ function parseFacturaText(text) {
     const cantidad = parseFloat(m[3]);
     if (!cantidad) continue;
 
-    const mLitros = designacion.match(/(\d+(?:[.,]\d+)?)\s*(?:litros?|litres?)/i);
+    // El proveedor tiene una errata recurrente en algunas líneas ("5 ltiros" en vez de
+    // "5 litros", vista repetidamente en $CHEESEM5) — se acepta también esa variante para
+    // no perder la línea entera en silencio.
+    const mLitros = designacion.match(/(\d+(?:[.,]\d+)?)\s*(?:litros?|litres?|ltiros?)/i);
     const mBox = designacion.match(/\((\d+)\s*x\s*(\d+)\s*(?:ud|pz|p)\)/i);
     const mUd = designacion.match(/\((\d+)\s*(?:ud|pz|p)\)/i);
     const esGrandioso = /grandios/i.test(designacion);
