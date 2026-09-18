@@ -475,7 +475,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-17.3";
+const IL_COSTO_VERSION = "2025-09-17.4";
 
 const TIENDAS = ["Todas las tiendas (sistema)", "Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
 const MESES = [
@@ -654,13 +654,16 @@ async function extractPdfText(file) {
 // mientras que los precios usan coma decimal (36,44) — es la pista más fiable de la línea.
 function parseFacturaText(text) {
   const rawLines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  // Cuando una nota de pie (certificación bio, etc.) queda en su propia línea entre el nombre
-  // del producto y sus cifras, la fila se parte en dos: "REF Producto..." y, más abajo,
-  // "Qté PU HT ... " sueltas. Aquí se recompone: una línea que empieza directamente por el
-  // patrón "cantidad precio" (sin código de referencia delante) se pega a la línea anterior.
+  // El renderizado del PDF a veces parte una fila en varias líneas: una nota de pie
+  // (certificación bio) o el propio formato de caja "(8x10ud)" pueden quedar solos, separados
+  // del nombre del producto y/o de sus cifras. Aquí se recompone: una línea que es solo un
+  // paréntesis "(...)", o que empieza directamente por el patrón "cantidad precio" (sin código
+  // de referencia delante), se pega a la línea anterior mientras ésta siga sin sus cifras.
   const lines = [];
   for (const raw of rawLines) {
-    if (/^\d+\.\d{2}\s+\d+,\d{2}/.test(raw) && lines.length > 0 && !/\d+\.\d{2}\s+\d+,\d{2}/.test(lines[lines.length - 1])) {
+    const esNumerosHuerfanos = /^\d+\.\d{2}\s+\d+,\d{2}/.test(raw);
+    const esParentesisSuelto = /^\([^()]*\)$/.test(raw);
+    if ((esNumerosHuerfanos || esParentesisSuelto) && lines.length > 0 && !/\d+\.\d{2}\s+\d+,\d{2}/.test(lines[lines.length - 1])) {
       lines[lines.length - 1] = lines[lines.length - 1] + " " + raw;
     } else {
       lines.push(raw);
