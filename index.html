@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-18.4";
+const IL_COSTO_VERSION = "2025-09-18.5";
 
 const TIENDAS = ["Todas las tiendas (sistema)", "Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
 const MESES = [
@@ -1919,7 +1919,7 @@ function CosteTeoricoApp() {
                                         borderRadius: 5, padding: "1px 6px", cursor: "pointer", fontWeight: 500,
                                       }}
                                     >
-                                      🏬 Tiendas
+                                      Tiendas
                                     </button>
                                     <button
                                       onClick={() => togglePanel(p.producto, "escandallo")}
@@ -1932,7 +1932,7 @@ function CosteTeoricoApp() {
                                         borderRadius: 5, padding: "1px 6px", cursor: p.escandalloDetalle ? "pointer" : "not-allowed", fontWeight: 500,
                                       }}
                                     >
-                                      📋 Escandallo
+                                      Escandallo
                                     </button>
                                   </span>
                                 </td>
