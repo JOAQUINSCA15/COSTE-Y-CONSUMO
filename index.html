@@ -899,6 +899,9 @@ function CosteTeoricoApp() {
   const [showCreps, setShowCreps] = useState(false);
   const [expandedKey, setExpandedKey] = useState(null);
   const [showTodosProductos, setShowTodosProductos] = useState(false);
+  const [showResultadosTodasTiendas, setShowResultadosTodasTiendas] = useState(true);
+  const [showLitrosHelado, setShowLitrosHelado] = useState(true);
+  const [soloTotalesProductos, setSoloTotalesProductos] = useState(false);
   const [expandedProducto, setExpandedProducto] = useState(null);
   const [colVisibles, setColVisibles] = useState({
     litrosHelado: true, macarons: true, macaronsGrandiosos: true, gofres: true, creps: true, base: true, importe: false,
@@ -1802,6 +1805,13 @@ function CosteTeoricoApp() {
                 >
                   <span style={{ fontSize: 18 }}>{showTodosProductos ? "▾" : "▸"}</span>
                   <span style={{ fontWeight: 700, fontSize: 15 }}>Todos los productos (consumo teórico consolidado)</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setSoloTotalesProductos((s) => !s); setShowTodosProductos(true); }}
+                    style={{ marginLeft: "auto", border: "1px solid #D8CDBB", background: soloTotalesProductos ? "#EDE7DC" : "#FFFFFF", borderRadius: 7, padding: "4px 8px", cursor: "pointer", fontSize: 11.5, fontWeight: 600, color: "#57534E" }}
+                    title="Mostrar solo la fila de totales"
+                  >
+                    {soloTotalesProductos ? "Mostrar productos" : "Solo totales"}
+                  </button>
                   <span style={{ fontSize: 12, color: "#9CA3AF" }}>
                     {productosConsolidados.lista.length} productos
                     {productosConsolidados.sinEscandalloCount > 0 && (
@@ -1854,7 +1864,7 @@ function CosteTeoricoApp() {
                           </tr>
                         </thead>
                         <tbody>
-                          {productosConsolidados.lista.map((p, i) => (
+                          {!soloTotalesProductos && productosConsolidados.lista.map((p, i) => (
                             <React.Fragment key={p.producto}>
                               <tr
                                 onClick={() => setExpandedProducto(expandedProducto === p.producto ? null : p.producto)}
@@ -1936,6 +1946,15 @@ function CosteTeoricoApp() {
               </div>
             )}
 
+
+            <div
+              onClick={() => setShowResultadosTodasTiendas((s) => !s)}
+              style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: showResultadosTodasTiendas ? 10 : 0 }}
+            >
+              <span style={{ fontSize: 18 }}>{showResultadosTodasTiendas ? "▾" : "▸"}</span>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>Resultados — Todas las tiendas (sistema)</span>
+            </div>
+            {showResultadosTodasTiendas && (
             <div style={{ fontSize: 13, color: "#78716C", marginBottom: 10 }}>
               Resultados — <strong style={{ color: "#1F2937" }}>{selectedTienda}</strong>
               {selectedMes ? <> · {selectedMes}</> : null}
@@ -2008,13 +2027,19 @@ function CosteTeoricoApp() {
                 </table>
               </div>
             </div>
+            )}
 
             {/* Litros de helado */}
             <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 28 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+              <div
+                onClick={() => setShowLitrosHelado((s) => !s)}
+                style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: showLitrosHelado ? 14 : 0, flexWrap: "wrap", cursor: "pointer" }}
+              >
+                <span style={{ fontSize: 18 }}>{showLitrosHelado ? "▾" : "▸"}</span>
                 <span style={{ fontSize: 20 }}>🍦</span>
                 <span style={{ fontWeight: 700, fontSize: 15 }}>Litros de helado vendidos</span>
               </div>
+              {showLitrosHelado && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 14 }}>
                 <div style={{ background: "#FEF3E7", borderRadius: 12, padding: "16px 16px 14px" }}>
                   <div className="il-costo-display" style={{ fontSize: 22, fontWeight: 700, color: "#92400E" }}>
@@ -2093,6 +2118,9 @@ function CosteTeoricoApp() {
                 Vaciar inventarios y facturas (nuevo periodo)
               </button>
             </div>
+              )}
+            </div>
+
 
             {/* Subida de inventarios */}
             <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 10 }}>
