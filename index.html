@@ -1222,7 +1222,21 @@ function CosteTeoricoApp() {
       return b.importe - a.importe;
     });
     const sinEscandalloCount = lista.filter((p) => p.sinEscandallo).length;
-    return { lista, sinEscandalloCount };
+    const totales = lista.reduce((acc, p) => ({
+      ud: acc.ud + p.ud,
+      litrosHelado: acc.litrosHelado + p.litrosHelado,
+      macarons: acc.macarons + p.macarons,
+      macaronsGrandiosos: acc.macaronsGrandiosos + p.macaronsGrandiosos,
+      gofres: acc.gofres + p.gofres,
+      creps: acc.creps + p.creps,
+      base: acc.base + p.base,
+      baseTieneDatos: acc.baseTieneDatos || p.baseTieneDatos,
+      importe: acc.importe + p.importe,
+    }), {
+      ud: 0, litrosHelado: 0, macarons: 0, macaronsGrandiosos: 0,
+      gofres: 0, creps: 0, base: 0, baseTieneDatos: false, importe: 0,
+    });
+    return { lista, sinEscandalloCount, totales };
   }, [results]);
 
   function combineInventario(files, manual) {
@@ -1778,80 +1792,6 @@ function CosteTeoricoApp() {
 
         {/* Resultados: Coste Teórico */}
         {results && activeTab === "teorico" && (
-          <>
-            <div style={{ fontSize: 13, color: "#78716C", marginBottom: 10 }}>
-              Resultados — <strong style={{ color: "#1F2937" }}>{selectedTienda}</strong>
-              {selectedMes ? <> · {selectedMes}</> : null}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 22 }}>
-              {[
-                ["Facturación total", fmtEUR(results.totalImporte)],
-                ["Coste teórico", fmtEUR(results.costeTotal)],
-                ["Ratio de coste medio", fmtPct(results.ratioMedio)],
-                ["Cobertura de escandallo", fmtPct(results.cobertura)],
-              ].map(([label, val]) => (
-                <div key={label} style={{ background: "#1F2937", borderRadius: 12, padding: "16px 16px 14px", color: "white" }}>
-                  <div className="il-costo-display" style={{ fontSize: 22, fontWeight: 700 }}>{val}</div>
-                  <div style={{ fontSize: 11.5, color: "#C9CDD3", marginTop: 3 }}>{label}</div>
-                </div>
-              ))}
-            </div>
-
-            {results.unmatchedCount > 0 && (
-              <div style={{ background: "#FEF3E7", border: "1px solid #F5D9AE", borderRadius: 10, padding: "10px 14px", fontSize: 13, marginBottom: 16, color: "#92400E" }}>
-                {results.unmatchedCount} producto{results.unmatchedCount !== 1 ? "s" : ""} sin equivalencia en el escandallo — asígnala manualmente en la tabla y se recordará la próxima vez.
-              </div>
-            )}
-            {saveNote && (
-              <div style={{ fontSize: 12.5, color: "#15803D", marginBottom: 10 }}>{saveNote}</div>
-            )}
-
-            <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, overflow: "hidden", marginBottom: 28 }}>
-              <div className="il-costo-scroll" style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: "#1F2937", color: "white", textAlign: "left" }}>
-                      <th style={{ padding: "10px 14px", fontWeight: 600 }}>Producto</th>
-                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Ud.</th>
-                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Facturación</th>
-                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Ratio coste</th>
-                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Coste teórico</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.rows.map((r, i) => (
-                      <tr key={i} style={{ background: i % 2 ? "#FBF8F2" : "white", borderTop: "1px solid #F1EBDD" }}>
-                        <td style={{ padding: "9px 14px" }}>{r.producto}</td>
-                        <td style={{ padding: "9px 14px", textAlign: "right", color: "#78716C" }}>
-                          {r.unidades !== null ? fmtNum(r.unidades) : "—"}
-                        </td>
-                        <td style={{ padding: "9px 14px", textAlign: "right" }}>{fmtEUR(r.importe)}</td>
-                        <td style={{ padding: "9px 14px", textAlign: "right" }}>
-                          {r.match ? (
-                            <span style={{ color: ratioColor(r.ratioPct), fontWeight: 600 }}>{fmtPct(r.ratioPct)}</span>
-                          ) : (
-                            <select
-                              defaultValue=""
-                              onChange={(e) => e.target.value && handleManualMap(r.producto, e.target.value)}
-                              style={{ fontSize: 12, border: "1px solid #F5D9AE", borderRadius: 6, padding: "4px 6px", color: "#92400E", background: "#FEF3E7" }}
-                            >
-                              <option value="" disabled>Sin equivalencia — elegir…</option>
-                              {ESCANDALLOS_BASE.map((e) => (
-                                <option key={e.producto} value={e.producto}>{e.producto}</option>
-                              ))}
-                            </select>
-                          )}
-                        </td>
-                        <td style={{ padding: "9px 14px", textAlign: "right", fontWeight: 600 }}>
-                          {r.coste !== null ? fmtEUR(r.coste) : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
             {/* Todos los productos consumidos (tabla consolidada, fusionada entre tiendas/archivos) */}
             {productosConsolidados && (
               <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 28 }}>
@@ -1975,12 +1915,99 @@ function CosteTeoricoApp() {
                             </React.Fragment>
                           ))}
                         </tbody>
+                        <tfoot>
+                          <tr style={{ background: "#F5F0E7", borderTop: "2px solid #D8CDBB", fontWeight: 700 }}>
+                            <td style={{ padding: "8px 12px" }}>TOTAL CONSOLIDADO</td>
+                            <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.ud)}</td>
+                            {colVisibles.litrosHelado && <td style={{ padding: "8px 12px", textAlign: "right" }}>{productosConsolidados.totales.litrosHelado.toFixed(2)}</td>}
+                            {colVisibles.macarons && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.macarons)}</td>}
+                            {colVisibles.macaronsGrandiosos && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.macaronsGrandiosos)}</td>}
+                            {colVisibles.gofres && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.gofres)}</td>}
+                            {colVisibles.creps && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.creps)}</td>}
+                            {colVisibles.base && <td style={{ padding: "8px 12px", textAlign: "right" }}>{productosConsolidados.totales.baseTieneDatos ? fmtEUR(productosConsolidados.totales.base) : "—"}</td>}
+                            {colVisibles.importe && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtEUR(productosConsolidados.totales.importe)}</td>}
+                          </tr>
+                        </tfoot>
                       </table>
                     </div>
                   </>
                 )}
               </div>
             )}
+
+          <>
+            <div style={{ fontSize: 13, color: "#78716C", marginBottom: 10 }}>
+              Resultados — <strong style={{ color: "#1F2937" }}>{selectedTienda}</strong>
+              {selectedMes ? <> · {selectedMes}</> : null}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 22 }}>
+              {[
+                ["Facturación total", fmtEUR(results.totalImporte)],
+                ["Coste teórico", fmtEUR(results.costeTotal)],
+                ["Ratio de coste medio", fmtPct(results.ratioMedio)],
+                ["Cobertura de escandallo", fmtPct(results.cobertura)],
+              ].map(([label, val]) => (
+                <div key={label} style={{ background: "#1F2937", borderRadius: 12, padding: "16px 16px 14px", color: "white" }}>
+                  <div className="il-costo-display" style={{ fontSize: 22, fontWeight: 700 }}>{val}</div>
+                  <div style={{ fontSize: 11.5, color: "#C9CDD3", marginTop: 3 }}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            {results.unmatchedCount > 0 && (
+              <div style={{ background: "#FEF3E7", border: "1px solid #F5D9AE", borderRadius: 10, padding: "10px 14px", fontSize: 13, marginBottom: 16, color: "#92400E" }}>
+                {results.unmatchedCount} producto{results.unmatchedCount !== 1 ? "s" : ""} sin equivalencia en el escandallo — asígnala manualmente en la tabla y se recordará la próxima vez.
+              </div>
+            )}
+            {saveNote && (
+              <div style={{ fontSize: 12.5, color: "#15803D", marginBottom: 10 }}>{saveNote}</div>
+            )}
+
+            <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, overflow: "hidden", marginBottom: 28 }}>
+              <div className="il-costo-scroll" style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#1F2937", color: "white", textAlign: "left" }}>
+                      <th style={{ padding: "10px 14px", fontWeight: 600 }}>Producto</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Ud.</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Facturación</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Ratio coste</th>
+                      <th style={{ padding: "10px 14px", fontWeight: 600, textAlign: "right" }}>Coste teórico</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.rows.map((r, i) => (
+                      <tr key={i} style={{ background: i % 2 ? "#FBF8F2" : "white", borderTop: "1px solid #F1EBDD" }}>
+                        <td style={{ padding: "9px 14px" }}>{r.producto}</td>
+                        <td style={{ padding: "9px 14px", textAlign: "right", color: "#78716C" }}>
+                          {r.unidades !== null ? fmtNum(r.unidades) : "—"}
+                        </td>
+                        <td style={{ padding: "9px 14px", textAlign: "right" }}>{fmtEUR(r.importe)}</td>
+                        <td style={{ padding: "9px 14px", textAlign: "right" }}>
+                          {r.match ? (
+                            <span style={{ color: ratioColor(r.ratioPct), fontWeight: 600 }}>{fmtPct(r.ratioPct)}</span>
+                          ) : (
+                            <select
+                              defaultValue=""
+                              onChange={(e) => e.target.value && handleManualMap(r.producto, e.target.value)}
+                              style={{ fontSize: 12, border: "1px solid #F5D9AE", borderRadius: 6, padding: "4px 6px", color: "#92400E", background: "#FEF3E7" }}
+                            >
+                              <option value="" disabled>Sin equivalencia — elegir…</option>
+                              {ESCANDALLOS_BASE.map((e) => (
+                                <option key={e.producto} value={e.producto}>{e.producto}</option>
+                              ))}
+                            </select>
+                          )}
+                        </td>
+                        <td style={{ padding: "9px 14px", textAlign: "right", fontWeight: 600 }}>
+                          {r.coste !== null ? fmtEUR(r.coste) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             {/* Litros de helado */}
             <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 28 }}>
