@@ -132,6 +132,13 @@ const ESCANDALLOS_BASE = [
   { producto: "Bolsa Isotérmica 1/2L", ratio: 0.6512 },
   { producto: "Bolsa Isotérmica 1 L", ratio: 0.7744 },
   { producto: "Espátula Amorino", ratio: 0.8556 },
+  { producto: "Galleta Cono Piccolo", ratio: 0.2903 },
+  { producto: "Galleta Cono Mediano", ratio: 0.24 },
+  { producto: "Galleta Cono Normale", ratio: 0.24 },
+  { producto: "Galleta Cono Grande", ratio: 0.278 },
+  { producto: "Pack 2 Cono Piccolo", ratio: 0.1742 },
+  { producto: "Pack 2 Cono Normale", ratio: 0.192 },
+  { producto: "Pack 2 Cono Grande", ratio: 0.278 },
 ];
 
 // Alias -> nombre canónico del escandallo (reglas confirmadas en el análisis 2025)
@@ -475,7 +482,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-18.1";
+const IL_COSTO_VERSION = "2025-09-18.3";
 
 const TIENDAS = ["Todas las tiendas (sistema)", "Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
 const MESES = [
@@ -898,7 +905,10 @@ function CosteTeoricoApp() {
   const [showGofres, setShowGofres] = useState(false);
   const [showCreps, setShowCreps] = useState(false);
   const [expandedKey, setExpandedKey] = useState(null);
-  const [showTodosProductos, setShowTodosProductos] = useState(false);
+  const [showTodosProductos, setShowTodosProductos] = useState(true);
+  const [soloTotalesProductos, setSoloTotalesProductos] = useState(false);
+  const [showResultadosPrincipales, setShowResultadosPrincipales] = useState(true);
+  const [showLitrosHeladoSection, setShowLitrosHeladoSection] = useState(true);
   const [expandedProducto, setExpandedProducto] = useState(null);
   const [colVisibles, setColVisibles] = useState({
     litrosHelado: true, macarons: true, macaronsGrandiosos: true, gofres: true, creps: true, base: true, importe: false,
@@ -1222,20 +1232,20 @@ function CosteTeoricoApp() {
       return b.importe - a.importe;
     });
     const sinEscandalloCount = lista.filter((p) => p.sinEscandallo).length;
-    const totales = lista.reduce((acc, p) => ({
-      ud: acc.ud + p.ud,
-      litrosHelado: acc.litrosHelado + p.litrosHelado,
-      macarons: acc.macarons + p.macarons,
-      macaronsGrandiosos: acc.macaronsGrandiosos + p.macaronsGrandiosos,
-      gofres: acc.gofres + p.gofres,
-      creps: acc.creps + p.creps,
-      base: acc.base + p.base,
-      baseTieneDatos: acc.baseTieneDatos || p.baseTieneDatos,
-      importe: acc.importe + p.importe,
-    }), {
-      ud: 0, litrosHelado: 0, macarons: 0, macaronsGrandiosos: 0,
-      gofres: 0, creps: 0, base: 0, baseTieneDatos: false, importe: 0,
-    });
+    const totales = lista.reduce(
+      (a, p) => ({
+        ud: a.ud + p.ud,
+        base: a.base + p.base,
+        baseTieneDatos: a.baseTieneDatos || p.baseTieneDatos,
+        importe: a.importe + p.importe,
+        litrosHelado: a.litrosHelado + p.litrosHelado,
+        macarons: a.macarons + p.macarons,
+        macaronsGrandiosos: a.macaronsGrandiosos + p.macaronsGrandiosos,
+        gofres: a.gofres + p.gofres,
+        creps: a.creps + p.creps,
+      }),
+      { ud: 0, base: 0, baseTieneDatos: false, importe: 0, litrosHelado: 0, macarons: 0, macaronsGrandiosos: 0, gofres: 0, creps: 0 }
+    );
     return { lista, sinEscandalloCount, totales };
   }, [results]);
 
@@ -1818,7 +1828,7 @@ function CosteTeoricoApp() {
                       escandallo de coste encontrado (no cuenta en "Coste teórico", aunque sí pueda tener helado/
                       macarons/gofres/creps asignados si el nombre coincide con esas listas).
                     </p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12, fontSize: 12, color: "#57534E" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12, fontSize: 12, color: "#57534E", alignItems: "center" }}>
                       {[
                         ["litrosHelado", "Litros helado"],
                         ["macarons", "Macarons"],
@@ -1837,6 +1847,14 @@ function CosteTeoricoApp() {
                           {lbl}
                         </label>
                       ))}
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", marginLeft: "auto", fontWeight: 600, color: "#92400E" }}>
+                        <input
+                          type="checkbox"
+                          checked={soloTotalesProductos}
+                          onChange={() => setSoloTotalesProductos((s) => !s)}
+                        />
+                        Ver solo totales (ocultar productos)
+                      </label>
                     </div>
                     <div className="il-costo-scroll" style={{ overflowX: "auto", border: "1px solid #ECE4D6", borderRadius: 8 }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
@@ -1853,6 +1871,7 @@ function CosteTeoricoApp() {
                             {colVisibles.importe && <th style={{ padding: "7px 12px", textAlign: "right" }}>Fact. bruta</th>}
                           </tr>
                         </thead>
+                        {!soloTotalesProductos && (
                         <tbody>
                           {productosConsolidados.lista.map((p, i) => (
                             <React.Fragment key={p.producto}>
@@ -1916,9 +1935,10 @@ function CosteTeoricoApp() {
                             </React.Fragment>
                           ))}
                         </tbody>
+                        )}
                         <tfoot>
-                          <tr style={{ background: "#F5F0E7", borderTop: "2px solid #D8CDBB", fontWeight: 700 }}>
-                            <td style={{ padding: "8px 12px" }}>TOTAL CONSOLIDADO</td>
+                          <tr style={{ borderTop: "2px solid #1F2937", background: "#FEF3E7", fontWeight: 700 }}>
+                            <td style={{ padding: "8px 12px" }}>TOTAL ({productosConsolidados.lista.length} productos)</td>
                             <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.ud)}</td>
                             {colVisibles.litrosHelado && <td style={{ padding: "8px 12px", textAlign: "right" }}>{productosConsolidados.totales.litrosHelado.toFixed(2)}</td>}
                             {colVisibles.macarons && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.macarons)}</td>}
@@ -1937,10 +1957,16 @@ function CosteTeoricoApp() {
             )}
 
 
-            <div style={{ fontSize: 13, color: "#78716C", marginBottom: 10 }}>
+            <div
+              style={{ fontSize: 13, color: "#78716C", marginBottom: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}
+              onClick={() => setShowResultadosPrincipales((s) => !s)}
+            >
+              <span style={{ fontSize: 16 }}>{showResultadosPrincipales ? "▾" : "▸"}</span>
               Resultados — <strong style={{ color: "#1F2937" }}>{selectedTienda}</strong>
               {selectedMes ? <> · {selectedMes}</> : null}
             </div>
+            {showResultadosPrincipales && (
+            <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 22 }}>
               {[
                 ["Facturación total", fmtEUR(results.totalImporte)],
@@ -2009,13 +2035,21 @@ function CosteTeoricoApp() {
                 </table>
               </div>
             </div>
+            </>
+            )}
 
             {/* Litros de helado */}
             <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 28 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+              <div
+                style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: showLitrosHeladoSection ? 14 : 0, flexWrap: "wrap", cursor: "pointer" }}
+                onClick={() => setShowLitrosHeladoSection((s) => !s)}
+              >
+                <span style={{ fontSize: 16 }}>{showLitrosHeladoSection ? "▾" : "▸"}</span>
                 <span style={{ fontSize: 20 }}>🍦</span>
                 <span style={{ fontWeight: 700, fontSize: 15 }}>Litros de helado vendidos</span>
               </div>
+              {showLitrosHeladoSection && (
+              <>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 14 }}>
                 <div style={{ background: "#FEF3E7", borderRadius: 12, padding: "16px 16px 14px" }}>
                   <div className="il-costo-display" style={{ fontSize: 22, fontWeight: 700, color: "#92400E" }}>
@@ -2069,6 +2103,8 @@ function CosteTeoricoApp() {
                     </tbody>
                   </table>
                 </div>
+              )}
+              </>
               )}
             </div>
           </>
