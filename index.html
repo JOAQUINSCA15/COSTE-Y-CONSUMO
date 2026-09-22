@@ -12,7 +12,7 @@
   <body style="margin:0;">
     <div id="root"></div>
     <script type="text/babel" data-presets="react">
-const { useState, useMemo, useEffect, useCallback } = React;
+const { useState, useMemo, useEffect, useCallback, Fragment } = React;
 
 // ---------------------------------------------------------------------------
 // Datos base: escandallos (ratio de coste = coste / precio de venta)
@@ -475,7 +475,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-17.4";
+const IL_COSTO_VERSION = "2025-09-18.1";
 
 const TIENDAS = ["Todas las tiendas (sistema)", "Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
 const MESES = [
@@ -496,12 +496,16 @@ function extractFullFormatRow(cells) {
   if (!cells || cells.length < 8) return null;
   const producto = cells[3];
   if (typeof producto !== "string" || !producto.trim()) return null;
+  const rawTienda = cells[0];
   const rawUd = cells[5];
+  const rawBase = cells[6];
   const rawImporte = cells[7];
   const unidades = typeof rawUd === "number" ? rawUd : parseNumber(rawUd);
+  const base = typeof rawBase === "number" ? rawBase : parseNumber(rawBase);
   const importe = typeof rawImporte === "number" ? rawImporte : parseNumber(rawImporte);
   if (importe === null || importe < 0) return null;
-  return { producto: producto.trim(), unidades, importe };
+  const tienda = typeof rawTienda === "string" && rawTienda.trim() ? rawTienda.trim() : null;
+  return { producto: producto.trim(), unidades, base, importe, tienda };
 }
 
 function parseWorkbookRows(aoa) {
@@ -894,6 +898,11 @@ function CosteTeoricoApp() {
   const [showGofres, setShowGofres] = useState(false);
   const [showCreps, setShowCreps] = useState(false);
   const [expandedKey, setExpandedKey] = useState(null);
+  const [showTodosProductos, setShowTodosProductos] = useState(false);
+  const [expandedProducto, setExpandedProducto] = useState(null);
+  const [colVisibles, setColVisibles] = useState({
+    litrosHelado: true, macarons: true, macaronsGrandiosos: true, gofres: true, creps: true, base: true, importe: false,
+  });
   const [customAliases, setCustomAliases] = useState({});
   const [ratioOverrides, setRatioOverrides] = useState({});
   const [showEscandallos, setShowEscandallos] = useState(false);
@@ -1157,6 +1166,64 @@ function CosteTeoricoApp() {
       ventaFamiliaHelado, ventaFamiliaMacarons, ventaFamiliaMacaronsGrandiosos, ventaFamiliaGofres, ventaFamiliaCreps,
     };
   }, [parsedRows, resolveProduct, resolveHelado, resolveProporcion]);
+
+  // Tabla "Todos los productos": fusiona el mismo producto de todas las tiendas/archivos
+  // subidos en una sola fila, con el desglose por tienda guardado aparte para el desplegable.
+  const productosConsolidados = useMemo(() => {
+    if (!results) return null;
+    const porProducto = new Map();
+    for (const r of results.rows) {
+      const key = r.producto;
+      if (!porProducto.has(key)) {
+        porProducto.set(key, {
+          producto: key,
+          ud: 0, base: 0, baseTieneDatos: false, importe: 0,
+          litrosHelado: 0, macarons: 0, macaronsGrandiosos: 0, gofres: 0, creps: 0,
+          sinEscandallo: !r.match,
+          porTienda: new Map(),
+        });
+      }
+      const acc = porProducto.get(key);
+      const ud = r.unidades || 0;
+      const litros = r.gramosHeladoTotal !== null && r.gramosHeladoTotal !== undefined ? r.gramosHeladoTotal / 880 : 0;
+      const macarons = r.macaronsUd !== null && r.unidades !== null ? r.macaronsUd * r.unidades : 0;
+      const macaronsG = r.macaronsGrandiososUd !== null && r.unidades !== null ? r.macaronsGrandiososUd * r.unidades : 0;
+      const gofres = r.gofresUd !== null && r.unidades !== null ? r.gofresUd * r.unidades : 0;
+      const creps = r.crepsUd !== null && r.unidades !== null ? r.crepsUd * r.unidades : 0;
+
+      acc.ud += ud;
+      if (r.base !== null && r.base !== undefined) { acc.base += r.base; acc.baseTieneDatos = true; }
+      acc.importe += r.importe || 0;
+      acc.litrosHelado += litros;
+      acc.macarons += macarons;
+      acc.macaronsGrandiosos += macaronsG;
+      acc.gofres += gofres;
+      acc.creps += creps;
+
+      const tiendaKey = r.tienda || "(sin identificar)";
+      if (!acc.porTienda.has(tiendaKey)) {
+        acc.porTienda.set(tiendaKey, { tienda: tiendaKey, ud: 0, base: 0, baseTieneDatos: false, importe: 0, litrosHelado: 0, macarons: 0, macaronsGrandiosos: 0, gofres: 0, creps: 0 });
+      }
+      const t = acc.porTienda.get(tiendaKey);
+      t.ud += ud;
+      if (r.base !== null && r.base !== undefined) { t.base += r.base; t.baseTieneDatos = true; }
+      t.importe += r.importe || 0;
+      t.litrosHelado += litros;
+      t.macarons += macarons;
+      t.macaronsGrandiosos += macaronsG;
+      t.gofres += gofres;
+      t.creps += creps;
+    }
+    const lista = Array.from(porProducto.values()).map((p) => ({ ...p, porTienda: Array.from(p.porTienda.values()).sort((a, b) => b.importe - a.importe) }));
+    lista.sort((a, b) => {
+      const aConsume = a.litrosHelado + a.macarons + a.macaronsGrandiosos + a.gofres + a.creps > 0;
+      const bConsume = b.litrosHelado + b.macarons + b.macaronsGrandiosos + b.gofres + b.creps > 0;
+      if (aConsume !== bConsume) return aConsume ? -1 : 1;
+      return b.importe - a.importe;
+    });
+    const sinEscandalloCount = lista.filter((p) => p.sinEscandallo).length;
+    return { lista, sinEscandalloCount };
+  }, [results]);
 
   function combineInventario(files, manual) {
     const agg = files.length
@@ -1784,6 +1851,136 @@ function CosteTeoricoApp() {
                 </table>
               </div>
             </div>
+
+            {/* Todos los productos consumidos (tabla consolidada, fusionada entre tiendas/archivos) */}
+            {productosConsolidados && (
+              <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 28 }}>
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: showTodosProductos ? 14 : 0 }}
+                  onClick={() => setShowTodosProductos((s) => !s)}
+                >
+                  <span style={{ fontSize: 18 }}>{showTodosProductos ? "▾" : "▸"}</span>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>Todos los productos (consumo teórico consolidado)</span>
+                  <span style={{ fontSize: 12, color: "#9CA3AF" }}>
+                    {productosConsolidados.lista.length} productos
+                    {productosConsolidados.sinEscandalloCount > 0 && (
+                      <span style={{ color: "#B91C1C", fontWeight: 600 }}> · ⚠ {productosConsolidados.sinEscandalloCount} sin escandallo de coste</span>
+                    )}
+                  </span>
+                </div>
+
+                {showTodosProductos && (
+                  <>
+                    <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 10 }}>
+                      Un producto = una fila, sumado entre todas las tiendas/archivos cargados. Haz clic en una fila
+                      para ver el desglose por tienda. <span style={{ color: "#B91C1C" }}>⚠</span> = producto sin
+                      escandallo de coste encontrado (no cuenta en "Coste teórico", aunque sí pueda tener helado/
+                      macarons/gofres/creps asignados si el nombre coincide con esas listas).
+                    </p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12, fontSize: 12, color: "#57534E" }}>
+                      {[
+                        ["litrosHelado", "Litros helado"],
+                        ["macarons", "Macarons"],
+                        ["macaronsGrandiosos", "Mac. Grandiosos"],
+                        ["gofres", "Gofres"],
+                        ["creps", "Creps"],
+                        ["base", "Facturación neta"],
+                        ["importe", "Facturación bruta"],
+                      ].map(([k, lbl]) => (
+                        <label key={k} style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={colVisibles[k]}
+                            onChange={() => setColVisibles((c) => ({ ...c, [k]: !c[k] }))}
+                          />
+                          {lbl}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="il-costo-scroll" style={{ overflowX: "auto", border: "1px solid #ECE4D6", borderRadius: 8 }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                        <thead>
+                          <tr style={{ background: "#1F2937", color: "white", textAlign: "left" }}>
+                            <th style={{ padding: "7px 12px" }}>Producto</th>
+                            <th style={{ padding: "7px 12px", textAlign: "right" }}>Ud</th>
+                            {colVisibles.litrosHelado && <th style={{ padding: "7px 12px", textAlign: "right" }}>Litros helado</th>}
+                            {colVisibles.macarons && <th style={{ padding: "7px 12px", textAlign: "right" }}>Macarons</th>}
+                            {colVisibles.macaronsGrandiosos && <th style={{ padding: "7px 12px", textAlign: "right" }}>Mac. Grandiosos</th>}
+                            {colVisibles.gofres && <th style={{ padding: "7px 12px", textAlign: "right" }}>Gofres</th>}
+                            {colVisibles.creps && <th style={{ padding: "7px 12px", textAlign: "right" }}>Creps</th>}
+                            {colVisibles.base && <th style={{ padding: "7px 12px", textAlign: "right" }}>Fact. neta</th>}
+                            {colVisibles.importe && <th style={{ padding: "7px 12px", textAlign: "right" }}>Fact. bruta</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {productosConsolidados.lista.map((p, i) => (
+                            <React.Fragment key={p.producto}>
+                              <tr
+                                onClick={() => setExpandedProducto(expandedProducto === p.producto ? null : p.producto)}
+                                style={{ borderTop: "1px solid #F1EBDD", background: i % 2 ? "#FBF8F2" : "white", cursor: "pointer" }}
+                              >
+                                <td style={{ padding: "6px 12px", fontWeight: 600 }}>
+                                  {p.sinEscandallo && <span title="Sin escandallo de coste" style={{ color: "#B91C1C", marginRight: 5 }}>⚠</span>}
+                                  {p.producto}
+                                  <span style={{ marginLeft: 6, color: "#B0A99A", fontSize: 11 }}>{expandedProducto === p.producto ? "▾" : "▸"}</span>
+                                </td>
+                                <td style={{ padding: "6px 12px", textAlign: "right" }}>{fmtNum(p.ud)}</td>
+                                {colVisibles.litrosHelado && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.litrosHelado > 0 ? p.litrosHelado.toFixed(2) : "—"}</td>}
+                                {colVisibles.macarons && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.macarons > 0 ? fmtNum(p.macarons) : "—"}</td>}
+                                {colVisibles.macaronsGrandiosos && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.macaronsGrandiosos > 0 ? fmtNum(p.macaronsGrandiosos) : "—"}</td>}
+                                {colVisibles.gofres && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.gofres > 0 ? fmtNum(p.gofres) : "—"}</td>}
+                                {colVisibles.creps && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.creps > 0 ? fmtNum(p.creps) : "—"}</td>}
+                                {colVisibles.base && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.baseTieneDatos ? fmtEUR(p.base) : "—"}</td>}
+                                {colVisibles.importe && <td style={{ padding: "6px 12px", textAlign: "right" }}>{fmtEUR(p.importe)}</td>}
+                              </tr>
+                              {expandedProducto === p.producto && (
+                                <tr>
+                                  <td colSpan={9} style={{ padding: 0, background: "#FBF8F2" }}>
+                                    <div style={{ padding: "10px 12px 14px 34px" }}>
+                                      <div style={{ fontSize: 11.5, fontWeight: 600, color: "#78716C", marginBottom: 6 }}>Desglose por tienda:</div>
+                                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                                        <thead>
+                                          <tr style={{ color: "#9CA3AF", textAlign: "left" }}>
+                                            <th style={{ padding: "3px 8px" }}>Tienda</th>
+                                            <th style={{ padding: "3px 8px", textAlign: "right" }}>Ud</th>
+                                            {colVisibles.litrosHelado && <th style={{ padding: "3px 8px", textAlign: "right" }}>Litros</th>}
+                                            {colVisibles.macarons && <th style={{ padding: "3px 8px", textAlign: "right" }}>Macarons</th>}
+                                            {colVisibles.macaronsGrandiosos && <th style={{ padding: "3px 8px", textAlign: "right" }}>Mac. Grand.</th>}
+                                            {colVisibles.gofres && <th style={{ padding: "3px 8px", textAlign: "right" }}>Gofres</th>}
+                                            {colVisibles.creps && <th style={{ padding: "3px 8px", textAlign: "right" }}>Creps</th>}
+                                            {colVisibles.base && <th style={{ padding: "3px 8px", textAlign: "right" }}>Fact. neta</th>}
+                                            {colVisibles.importe && <th style={{ padding: "3px 8px", textAlign: "right" }}>Fact. bruta</th>}
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {p.porTienda.map((t) => (
+                                            <tr key={t.tienda} style={{ borderTop: "1px solid #ECE4D6" }}>
+                                              <td style={{ padding: "3px 8px" }}>{t.tienda}</td>
+                                              <td style={{ padding: "3px 8px", textAlign: "right" }}>{fmtNum(t.ud)}</td>
+                                              {colVisibles.litrosHelado && <td style={{ padding: "3px 8px", textAlign: "right" }}>{t.litrosHelado > 0 ? t.litrosHelado.toFixed(2) : "—"}</td>}
+                                              {colVisibles.macarons && <td style={{ padding: "3px 8px", textAlign: "right" }}>{t.macarons > 0 ? fmtNum(t.macarons) : "—"}</td>}
+                                              {colVisibles.macaronsGrandiosos && <td style={{ padding: "3px 8px", textAlign: "right" }}>{t.macaronsGrandiosos > 0 ? fmtNum(t.macaronsGrandiosos) : "—"}</td>}
+                                              {colVisibles.gofres && <td style={{ padding: "3px 8px", textAlign: "right" }}>{t.gofres > 0 ? fmtNum(t.gofres) : "—"}</td>}
+                                              {colVisibles.creps && <td style={{ padding: "3px 8px", textAlign: "right" }}>{t.creps > 0 ? fmtNum(t.creps) : "—"}</td>}
+                                              {colVisibles.base && <td style={{ padding: "3px 8px", textAlign: "right" }}>{t.baseTieneDatos ? fmtEUR(t.base) : "—"}</td>}
+                                              {colVisibles.importe && <td style={{ padding: "3px 8px", textAlign: "right" }}>{fmtEUR(t.importe)}</td>}
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Litros de helado */}
             <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 28 }}>
