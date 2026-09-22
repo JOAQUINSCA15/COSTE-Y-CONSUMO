@@ -473,6 +473,16 @@ const parseNumber = (raw) => {
 const fmtEUR = (v) =>
   (v ?? 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
 const fmtNum = (v) => Math.round(v ?? 0).toLocaleString("es-ES");
+
+function formulaLitros(p) {
+  if (!p.gramosHeladoUd || p.litrosHelado <= 0) return null;
+  const gramosTotal = p.gramosHeladoUd * p.ud;
+  return `${fmtNum(p.ud)} ud × ${fmtNum(p.gramosHeladoUd)} g/ud = ${fmtNum(gramosTotal)} g = ${p.litrosHelado.toFixed(2)} L`;
+}
+function formulaMaterial(mult, total, ud) {
+  if (!mult || total <= 0) return null;
+  return `${fmtNum(ud)} ud × ${mult} = ${fmtNum(total)}`;
+}
 const fmtPct = (v) =>
   v === null || v === undefined || isNaN(v)
     ? "—"
@@ -482,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-18.3";
+const IL_COSTO_VERSION = "2025-09-18.4";
 
 const TIENDAS = ["Todas las tiendas (sistema)", "Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
 const MESES = [
@@ -909,7 +919,13 @@ function CosteTeoricoApp() {
   const [soloTotalesProductos, setSoloTotalesProductos] = useState(false);
   const [showResultadosPrincipales, setShowResultadosPrincipales] = useState(true);
   const [showLitrosHeladoSection, setShowLitrosHeladoSection] = useState(true);
-  const [expandedProducto, setExpandedProducto] = useState(null);
+  const [panelesAbiertos, setPanelesAbiertos] = useState({}); // { [producto]: { tienda: bool, escandallo: bool } }
+  const togglePanel = (producto, panel) => {
+    setPanelesAbiertos((prev) => {
+      const actual = prev[producto] || { tienda: false, escandallo: false };
+      return { ...prev, [producto]: { ...actual, [panel]: !actual[panel] } };
+    });
+  };
   const [colVisibles, setColVisibles] = useState({
     litrosHelado: true, macarons: true, macaronsGrandiosos: true, gofres: true, creps: true, base: true, importe: false,
   });
@@ -1189,7 +1205,13 @@ function CosteTeoricoApp() {
           producto: key,
           ud: 0, base: 0, baseTieneDatos: false, importe: 0,
           litrosHelado: 0, macarons: 0, macaronsGrandiosos: 0, gofres: 0, creps: 0,
+          gramosHeladoUd: r.heladoMatch ? r.gramosHeladoUd : null,
+          macaronsMult: r.macaronsUd,
+          macaronsGrandiososMult: r.macaronsGrandiososUd,
+          gofresMult: r.gofresUd,
+          crepsMult: r.crepsUd,
           sinEscandallo: !r.match,
+          escandalloDetalle: resolveDetalle(r.producto),
           porTienda: new Map(),
         });
       }
@@ -1247,7 +1269,7 @@ function CosteTeoricoApp() {
       { ud: 0, base: 0, baseTieneDatos: false, importe: 0, litrosHelado: 0, macarons: 0, macaronsGrandiosos: 0, gofres: 0, creps: 0 }
     );
     return { lista, sinEscandalloCount, totales };
-  }, [results]);
+  }, [results, resolveDetalle]);
 
   function combineInventario(files, manual) {
     const agg = files.length
@@ -1873,29 +1895,104 @@ function CosteTeoricoApp() {
                         </thead>
                         {!soloTotalesProductos && (
                         <tbody>
-                          {productosConsolidados.lista.map((p, i) => (
+                          {productosConsolidados.lista.map((p, i) => {
+                            const panel = panelesAbiertos[p.producto] || { tienda: false, escandallo: false };
+                            const nCols = 2 + Object.values(colVisibles).filter(Boolean).length;
+                            const fLitros = formulaLitros(p);
+                            const fMacarons = formulaMaterial(p.macaronsMult, p.macarons, p.ud);
+                            const fMacaronsG = formulaMaterial(p.macaronsGrandiososMult, p.macaronsGrandiosos, p.ud);
+                            const fGofres = formulaMaterial(p.gofresMult, p.gofres, p.ud);
+                            const fCreps = formulaMaterial(p.crepsMult, p.creps, p.ud);
+                            return (
                             <React.Fragment key={p.producto}>
-                              <tr
-                                onClick={() => setExpandedProducto(expandedProducto === p.producto ? null : p.producto)}
-                                style={{ borderTop: "1px solid #F1EBDD", background: i % 2 ? "#FBF8F2" : "white", cursor: "pointer" }}
-                              >
+                              <tr style={{ borderTop: "1px solid #F1EBDD", background: i % 2 ? "#FBF8F2" : "white" }}>
                                 <td style={{ padding: "6px 12px", fontWeight: 600 }}>
                                   {p.sinEscandallo && <span title="Sin escandallo de coste" style={{ color: "#B91C1C", marginRight: 5 }}>⚠</span>}
                                   {p.producto}
-                                  <span style={{ marginLeft: 6, color: "#B0A99A", fontSize: 11 }}>{expandedProducto === p.producto ? "▾" : "▸"}</span>
+                                  <span style={{ marginLeft: 8, display: "inline-flex", gap: 4 }}>
+                                    <button
+                                      onClick={() => togglePanel(p.producto, "tienda")}
+                                      title="Desglose por tienda"
+                                      style={{
+                                        fontSize: 10.5, border: "1px solid " + (panel.tienda ? "#92400E" : "#E5E0D5"),
+                                        background: panel.tienda ? "#FEF3E7" : "white", color: panel.tienda ? "#92400E" : "#78716C",
+                                        borderRadius: 5, padding: "1px 6px", cursor: "pointer", fontWeight: 500,
+                                      }}
+                                    >
+                                      🏬 Tiendas
+                                    </button>
+                                    <button
+                                      onClick={() => togglePanel(p.producto, "escandallo")}
+                                      title={p.escandalloDetalle ? "Ver escandallo" : "Sin escandallo desglosado"}
+                                      disabled={!p.escandalloDetalle}
+                                      style={{
+                                        fontSize: 10.5, border: "1px solid " + (panel.escandallo ? "#92400E" : "#E5E0D5"),
+                                        background: panel.escandallo ? "#FEF3E7" : "white",
+                                        color: !p.escandalloDetalle ? "#D6CFC0" : panel.escandallo ? "#92400E" : "#78716C",
+                                        borderRadius: 5, padding: "1px 6px", cursor: p.escandalloDetalle ? "pointer" : "not-allowed", fontWeight: 500,
+                                      }}
+                                    >
+                                      📋 Escandallo
+                                    </button>
+                                  </span>
                                 </td>
                                 <td style={{ padding: "6px 12px", textAlign: "right" }}>{fmtNum(p.ud)}</td>
-                                {colVisibles.litrosHelado && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.litrosHelado > 0 ? p.litrosHelado.toFixed(2) : "—"}</td>}
-                                {colVisibles.macarons && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.macarons > 0 ? fmtNum(p.macarons) : "—"}</td>}
-                                {colVisibles.macaronsGrandiosos && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.macaronsGrandiosos > 0 ? fmtNum(p.macaronsGrandiosos) : "—"}</td>}
-                                {colVisibles.gofres && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.gofres > 0 ? fmtNum(p.gofres) : "—"}</td>}
-                                {colVisibles.creps && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.creps > 0 ? fmtNum(p.creps) : "—"}</td>}
+                                {colVisibles.litrosHelado && (
+                                  <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                                    {p.litrosHelado > 0 ? (
+                                      <>
+                                        {p.litrosHelado.toFixed(2)}
+                                        {fLitros && <div style={{ fontSize: 9.5, fontWeight: 400, color: "#B0A99A" }}>({fLitros})</div>}
+                                      </>
+                                    ) : "—"}
+                                  </td>
+                                )}
+                                {colVisibles.macarons && (
+                                  <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                                    {p.macarons > 0 ? (
+                                      <>
+                                        {fmtNum(p.macarons)}
+                                        {fMacarons && <div style={{ fontSize: 9.5, fontWeight: 400, color: "#B0A99A" }}>({fMacarons})</div>}
+                                      </>
+                                    ) : "—"}
+                                  </td>
+                                )}
+                                {colVisibles.macaronsGrandiosos && (
+                                  <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                                    {p.macaronsGrandiosos > 0 ? (
+                                      <>
+                                        {fmtNum(p.macaronsGrandiosos)}
+                                        {fMacaronsG && <div style={{ fontSize: 9.5, fontWeight: 400, color: "#B0A99A" }}>({fMacaronsG})</div>}
+                                      </>
+                                    ) : "—"}
+                                  </td>
+                                )}
+                                {colVisibles.gofres && (
+                                  <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                                    {p.gofres > 0 ? (
+                                      <>
+                                        {fmtNum(p.gofres)}
+                                        {fGofres && <div style={{ fontSize: 9.5, fontWeight: 400, color: "#B0A99A" }}>({fGofres})</div>}
+                                      </>
+                                    ) : "—"}
+                                  </td>
+                                )}
+                                {colVisibles.creps && (
+                                  <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                                    {p.creps > 0 ? (
+                                      <>
+                                        {fmtNum(p.creps)}
+                                        {fCreps && <div style={{ fontSize: 9.5, fontWeight: 400, color: "#B0A99A" }}>({fCreps})</div>}
+                                      </>
+                                    ) : "—"}
+                                  </td>
+                                )}
                                 {colVisibles.base && <td style={{ padding: "6px 12px", textAlign: "right" }}>{p.baseTieneDatos ? fmtEUR(p.base) : "—"}</td>}
                                 {colVisibles.importe && <td style={{ padding: "6px 12px", textAlign: "right" }}>{fmtEUR(p.importe)}</td>}
                               </tr>
-                              {expandedProducto === p.producto && (
+                              {panel.tienda && (
                                 <tr>
-                                  <td colSpan={9} style={{ padding: 0, background: "#FBF8F2" }}>
+                                  <td colSpan={nCols} style={{ padding: 0, background: "#FBF8F2" }}>
                                     <div style={{ padding: "10px 12px 14px 34px" }}>
                                       <div style={{ fontSize: 11.5, fontWeight: 600, color: "#78716C", marginBottom: 6 }}>Desglose por tienda:</div>
                                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -1932,8 +2029,12 @@ function CosteTeoricoApp() {
                                   </td>
                                 </tr>
                               )}
+                              {panel.escandallo && (
+                                <IngredientBreakdown detalle={p.escandalloDetalle} colSpan={nCols} />
+                              )}
                             </React.Fragment>
-                          ))}
+                            );
+                          })}
                         </tbody>
                         )}
                         <tfoot>
