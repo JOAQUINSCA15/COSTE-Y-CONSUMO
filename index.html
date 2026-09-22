@@ -1792,6 +1792,7 @@ function CosteTeoricoApp() {
 
         {/* Resultados: Coste Teórico */}
         {results && activeTab === "teorico" && (
+          <>
             {/* Todos los productos consumidos (tabla consolidada, fusionada entre tiendas/archivos) */}
             {productosConsolidados && (
               <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 28 }}>
@@ -1935,7 +1936,6 @@ function CosteTeoricoApp() {
               </div>
             )}
 
-          <>
             <div style={{ fontSize: 13, color: "#78716C", marginBottom: 10 }}>
               Resultados — <strong style={{ color: "#1F2937" }}>{selectedTienda}</strong>
               {selectedMes ? <> · {selectedMes}</> : null}
