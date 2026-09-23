@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-19.6";
+const IL_COSTO_VERSION = "2025-09-19.7";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -831,27 +831,23 @@ async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   const litrosLabel = buscarCelda(grid, (t) => t.includes("total litros"));
   if (litrosLabel) totalLitros = parseNumEs(val(litrosLabel.r + 1, litrosLabel.c));
 
-  // Macarons / Macarons Grandiosos / Gofres / Creps: se busca la fila de cabecera (donde
-  // aparecen esas cuatro palabras como texto de columna) y el total va 4 filas más abajo,
-  // en la misma columna que cada cabecera (Cajas / Bandejas-Bolsas / Sueltos / Total).
-  const filaMacarons = buscarFilaConDosEtiquetas(
-    grid,
-    (t) => t.includes("macarons") && !t.includes("grandios"),
-    (t) => t.includes("macarons") && t.includes("grandios")
-  );
+  // Macarons / Macarons Grandiosos: no hay fila de cabecera con esas palabras por columna —
+  // solo el título de sección "MACARONS" (una palabra sola). El total va 4 filas más abajo
+  // (Cajas/Bandejas/Sueltos/Total), en las columnas C (macarons) y D (macarons grandiosos),
+  // confirmado contra el CSV real de la hoja.
   let macarons = 0, macaronsGrandiosos = 0, gofres = 0, creps = 0;
-  let filaTotal = null, colGofres = -1, colCreps = -1;
+  const filaMacarons = buscarCelda(grid, (t) => t === "macarons");
   if (filaMacarons) {
-    filaTotal = buscarFilaTotalTrasSueltos(grid, filaMacarons.r);
-    // Gofres y Creps se buscan SOLO dentro de la misma fila de cabecera que Macarons (van
-    // en la misma fila, a la derecha), para no confundirlos con el título de sección
-    // "GOFRES Y CREPS" que aparece unas filas más arriba y contiene las mismas palabras.
-    colGofres = buscarColumnaEnFila(grid[filaMacarons.r], (t) => t.includes("gofre"));
-    colCreps = buscarColumnaEnFila(grid[filaMacarons.r], (t) => t.includes("crep"));
-    macarons = parseNumEs(val(filaTotal, filaMacarons.c1));
-    macaronsGrandiosos = parseNumEs(val(filaTotal, filaMacarons.c2));
-    if (colGofres !== -1) gofres = parseNumEs(val(filaTotal, colGofres));
-    if (colCreps !== -1) creps = parseNumEs(val(filaTotal, colCreps));
+    const filaTotalMac = buscarFilaTotalTrasSueltos(grid, filaMacarons.r);
+    macarons = parseNumEs(val(filaTotalMac, 2)); // columna C
+    macaronsGrandiosos = parseNumEs(val(filaTotalMac, 3)); // columna D
+  }
+  // Gofres / Creps: título de sección "GOFRES Y CREPS". Mismo patrón, columnas I y J.
+  const filaGofresCreps = buscarCelda(grid, (t) => t.includes("gofres") && t.includes("creps"));
+  if (filaGofresCreps) {
+    const filaTotalGC = buscarFilaTotalTrasSueltos(grid, filaGofresCreps.r);
+    gofres = parseNumEs(val(filaTotalGC, 8)); // columna I
+    creps = parseNumEs(val(filaTotalGC, 9)); // columna J
   }
 
   const resultado = { totalLitros, macarons, macaronsGrandiosos, creps, gofres, fecha };
@@ -863,9 +859,8 @@ async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
       `longitud del texto crudo=${rawText.length}`,
       `etiqueta "Total Litros" ${litrosLabel ? `encontrada en fila ${litrosLabel.r + 1}` : "NO encontrada"}`,
       `etiqueta "Fecha de recuento" ${fechaLabel ? `encontrada en fila ${fechaLabel.r + 1}` : "NO encontrada"}`,
-      `cabecera "Macarons" ${filaMacarons ? `encontrada en fila ${filaMacarons.r + 1}, columnas ${filaMacarons.c1}/${filaMacarons.c2}` : "NO encontrada"}`,
-      filaMacarons ? `fila de "Sueltos"+1 usada como total: fila ${filaTotal + 1}` : "",
-      filaMacarons ? `contenido crudo en esa fila (macarons/macG/gofres/creps): "${val(filaTotal, filaMacarons.c1)}" / "${val(filaTotal, filaMacarons.c2)}" / "${colGofres !== -1 ? val(filaTotal, colGofres) : "col.gofres no encontrada"}" / "${colCreps !== -1 ? val(filaTotal, colCreps) : "col.creps no encontrada"}"` : "",
+      `título "MACARONS" ${filaMacarons ? `encontrado en fila ${filaMacarons.r + 1}` : "NO encontrado"}`,
+      `título "GOFRES Y CREPS" ${filaGofresCreps ? `encontrado en fila ${filaGofresCreps.r + 1}` : "NO encontrado"}`,
       `TEXTO CRUDO (primeros 3000 caracteres): ${JSON.stringify(rawText.slice(0, 3000))}`,
     ].filter(Boolean).join(" · ");
     throw new Error(`no se han podido leer macarons/gofres/creps — diagnóstico: ${diag}`);
