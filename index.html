@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-20.1";
+const IL_COSTO_VERSION = "2025-09-20.2";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -814,31 +814,13 @@ function buscarFilaConDosEtiquetas(grid, matcher1, matcher2) {
 // hoja tiene filas ocultas al principio, y el CSV que exporta Google las omite — así que el
 // número de fila "visual" (lo que se ve al abrir el documento) no coincide con el número de
 // fila que llega aquí. Buscando por contenido, da igual cuántas filas estén ocultas o dónde.
-async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
-  const docId = GOOGLE_SHEETS_INVENTARIO[tienda];
-  if (!docId) throw new Error(`tienda "${tienda}" no reconocida`);
-  let grid, rawText;
-  try {
-    ({ grid, rawText } = await fetchGoogleSheetFull(docId, semana));
-  } catch (errPrimero) {
-    const alternativas = SEMANA_NOMBRES_ALTERNATIVOS[semana] || [];
-    let exito = false;
-    for (const nombreAlt of alternativas) {
-      try {
-        ({ grid, rawText } = await fetchGoogleSheetFull(docId, nombreAlt));
-        exito = true;
-        break;
-      } catch (e) {
-        // sigue probando la siguiente variante, si la hay
-      }
-    }
-    if (!exito) throw errPrimero;
-  }
+// Aplica toda la extracción (fecha, litros, macarons, gofres, creps) a una rejilla ya
+// descargada, y además indica si se ha reconocido AL MENOS una etiqueta — si no se reconoce
+// ninguna, lo más probable es que esta rejilla no sea la pestaña correcta (Google puede
+// devolver otra pestaña por defecto si el nombre pedido no existe, sin dar ningún error).
+function extraerInventarioDeRejilla(grid) {
   const val = (r, c) => (grid[r] && grid[r][c] !== undefined ? grid[r][c] : "");
 
-  // Fecha: la etiqueta "Fecha de recuento" y el valor va en una de las celdas siguientes
-  // de esa misma fila (normalmente la de al lado, a veces una más allá si hay una celda
-  // vacía de por medio).
   let fecha = null;
   const fechaLabel = buscarCelda(grid, (t) => t.includes("fecha de recuento"));
   if (fechaLabel) {
@@ -851,31 +833,49 @@ async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
     }
   }
 
-  // Litros: la etiqueta "Total Litros" y el número va una fila más abajo, en la misma columna.
   let totalLitros = 0;
   const litrosLabel = buscarCelda(grid, (t) => t.includes("total litros"));
   if (litrosLabel) totalLitros = parseNumEs(val(litrosLabel.r + 1, litrosLabel.c));
 
-  // Macarons / Macarons Grandiosos: no hay fila de cabecera con esas palabras por columna —
-  // solo el título de sección "MACARONS" (una palabra sola). El total va 4 filas más abajo
-  // (Cajas/Bandejas/Sueltos/Total), en las columnas C (macarons) y D (macarons grandiosos),
-  // confirmado contra el CSV real de la hoja.
   let macarons = 0, macaronsGrandiosos = 0, gofres = 0, creps = 0;
   const filaMacarons = buscarCelda(grid, (t) => t === "macarons");
   if (filaMacarons) {
     const filaTotalMac = buscarFilaTotalTrasSueltos(grid, filaMacarons.r);
-    macarons = parseNumEs(val(filaTotalMac, 2)); // columna C
-    macaronsGrandiosos = parseNumEs(val(filaTotalMac, 3)); // columna D
+    macarons = parseNumEs(val(filaTotalMac, 2));
+    macaronsGrandiosos = parseNumEs(val(filaTotalMac, 3));
   }
-  // Gofres / Creps: título de sección "GOFRES Y CREPS". Mismo patrón, columnas I y J.
   const filaGofresCreps = buscarCelda(grid, (t) => t.includes("gofres") && t.includes("creps"));
   if (filaGofresCreps) {
     const filaTotalGC = buscarFilaTotalTrasSueltos(grid, filaGofresCreps.r);
-    gofres = parseNumEs(val(filaTotalGC, 8)); // columna I
-    creps = parseNumEs(val(filaTotalGC, 9)); // columna J
+    gofres = parseNumEs(val(filaTotalGC, 8));
+    creps = parseNumEs(val(filaTotalGC, 9));
   }
 
-  return { totalLitros, macarons, macaronsGrandiosos, creps, gofres, fecha };
+  const huboAlgunaEtiqueta = !!(fechaLabel || litrosLabel || filaMacarons || filaGofresCreps);
+  return { resultado: { totalLitros, macarons, macaronsGrandiosos, creps, gofres, fecha }, huboAlgunaEtiqueta };
+}
+
+async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
+  const docId = GOOGLE_SHEETS_INVENTARIO[tienda];
+  if (!docId) throw new Error(`tienda "${tienda}" no reconocida`);
+
+  const nombresCandidatos = [semana, ...(SEMANA_NOMBRES_ALTERNATIVOS[semana] || [])];
+  let ultimoError = null;
+  const intentos = [];
+  for (const nombre of nombresCandidatos) {
+    try {
+      const { grid, rawText } = await fetchGoogleSheetFull(docId, nombre);
+      const { resultado, huboAlgunaEtiqueta } = extraerInventarioDeRejilla(grid);
+      // Si no se reconoce ninguna etiqueta, esta pestaña probablemente no es la correcta
+      // (Google puede devolver otra por defecto sin avisar) — se prueba el siguiente nombre.
+      if (huboAlgunaEtiqueta) return resultado;
+      intentos.push(`"${nombre}": sin etiquetas reconocibles (primeros 200 car.: ${JSON.stringify(rawText.slice(0, 200))})`);
+    } catch (e) {
+      ultimoError = e;
+      intentos.push(`"${nombre}": error — ${e.message}`);
+    }
+  }
+  throw new Error(`no se ha encontrado ninguna pestaña válida para "${semana}" — diagnóstico: ${intentos.join(" · ")}`);
 }
 
 async function extractPdfText(file) {
