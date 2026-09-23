@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-19.7";
+const IL_COSTO_VERSION = "2025-09-19.8";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -850,22 +850,7 @@ async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
     creps = parseNumEs(val(filaTotalGC, 9)); // columna J
   }
 
-  const resultado = { totalLitros, macarons, macaronsGrandiosos, creps, gofres, fecha };
-  const todoCero = totalLitros === 0 && macarons === 0 && macaronsGrandiosos === 0 && creps === 0 && gofres === 0;
-  const materialesEnCero = macarons === 0 && macaronsGrandiosos === 0 && gofres === 0 && creps === 0;
-  if (todoCero || materialesEnCero) {
-    const diag = [
-      `filas recibidas=${grid.length}`,
-      `longitud del texto crudo=${rawText.length}`,
-      `etiqueta "Total Litros" ${litrosLabel ? `encontrada en fila ${litrosLabel.r + 1}` : "NO encontrada"}`,
-      `etiqueta "Fecha de recuento" ${fechaLabel ? `encontrada en fila ${fechaLabel.r + 1}` : "NO encontrada"}`,
-      `título "MACARONS" ${filaMacarons ? `encontrado en fila ${filaMacarons.r + 1}` : "NO encontrado"}`,
-      `título "GOFRES Y CREPS" ${filaGofresCreps ? `encontrado en fila ${filaGofresCreps.r + 1}` : "NO encontrado"}`,
-      `TEXTO CRUDO (primeros 3000 caracteres): ${JSON.stringify(rawText.slice(0, 3000))}`,
-    ].filter(Boolean).join(" · ");
-    throw new Error(`no se han podido leer macarons/gofres/creps — diagnóstico: ${diag}`);
-  }
-  return resultado;
+  return { totalLitros, macarons, macaronsGrandiosos, creps, gofres, fecha };
 }
 
 async function extractPdfText(file) {
