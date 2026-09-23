@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-20.5";
+const IL_COSTO_VERSION = "2025-09-20.6";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -1208,6 +1208,57 @@ function CosteTeoricoApp() {
       return { ...prev, [producto]: { ...actual, [panel]: !actual[panel] } };
     });
   };
+
+  const handleExportarProductosExcel = () => {
+    if (!productosConsolidados) return;
+    const cabecera = [
+      "Producto", "Unidades vendidas",
+      "Gramos helado / ud", "Litros helado (total)",
+      "Macarons / ud", "Macarons (total)",
+      "Macarons Grandiosos / ud", "Macarons Grandiosos (total)",
+      "Gofres / ud", "Gofres (total)",
+      "Creps / ud", "Creps (total)",
+      "Facturación neta (€)", "Facturación bruta (€)",
+      "Sin escandallo de coste",
+    ];
+    const filas = productosConsolidados.lista.map((p) => [
+      p.producto,
+      p.ud,
+      p.gramosHeladoUd || 0,
+      Number(p.litrosHelado.toFixed(2)),
+      p.macaronsMult || 0,
+      p.macarons,
+      p.macaronsGrandiososMult || 0,
+      p.macaronsGrandiosos,
+      p.gofresMult || 0,
+      p.gofres,
+      p.crepsMult || 0,
+      p.creps,
+      p.baseTieneDatos ? Number(p.base.toFixed(2)) : "",
+      Number(p.importe.toFixed(2)),
+      p.sinEscandallo ? "Sí" : "",
+    ]);
+    const filaTotal = [
+      `TOTAL (${productosConsolidados.lista.length} productos)`,
+      productosConsolidados.totales.ud,
+      "", Number(productosConsolidados.totales.litrosHelado.toFixed(2)),
+      "", productosConsolidados.totales.macarons,
+      "", productosConsolidados.totales.macaronsGrandiosos,
+      "", productosConsolidados.totales.gofres,
+      "", productosConsolidados.totales.creps,
+      productosConsolidados.totales.baseTieneDatos ? Number(productosConsolidados.totales.base.toFixed(2)) : "",
+      Number(productosConsolidados.totales.importe.toFixed(2)),
+      "",
+    ];
+    const aoa = [cabecera, ...filas, filaTotal];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = cabecera.map((h) => ({ wch: Math.max(12, h.length) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Todos los productos");
+    const fecha = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `il_costo_todos_los_productos_${fecha}.xlsx`);
+  };
+
   const [colVisibles, setColVisibles] = useState({
     litrosHelado: true, macarons: true, macaronsGrandiosos: true, gofres: true, creps: true, base: true, importe: false,
   });
@@ -2156,6 +2207,15 @@ function CosteTeoricoApp() {
                       <span style={{ color: "#B91C1C", fontWeight: 600 }}> · ⚠ {productosConsolidados.sinEscandalloCount} sin escandallo de coste</span>
                     )}
                   </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleExportarProductosExcel(); }}
+                    style={{
+                      marginLeft: "auto", background: "#FEF3E7", border: "1px solid #F5D9AE", borderRadius: 8,
+                      padding: "5px 12px", fontSize: 12, fontWeight: 600, color: "#92400E", cursor: "pointer",
+                    }}
+                  >
+                    📥 Exportar a Excel
+                  </button>
                 </div>
 
                 {showTodosProductos && (
