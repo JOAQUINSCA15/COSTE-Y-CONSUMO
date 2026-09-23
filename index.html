@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-20.4";
+const IL_COSTO_VERSION = "2025-09-20.5";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -844,7 +844,11 @@ function extraerInventarioDeRejilla(grid) {
     macarons = parseNumEs(val(filaTotalMac, 2));
     macaronsGrandiosos = parseNumEs(val(filaTotalMac, 3));
   }
-  const filaGofresCreps = buscarCelda(grid, (t) => t.includes("gofres") && t.includes("creps"));
+  // Título "GOFRES Y CREPS" cuando existe; si esta semana no lo tiene (solo trae "MACARONS"
+  // y las cuatro cabeceras juntas en la fila de abajo), se busca "Gofres" como cabecera de
+  // columna suelta en su lugar — el ancla real es la misma fila en cualquier caso.
+  const filaGofresCreps = buscarCelda(grid, (t) => t.includes("gofres") && t.includes("creps"))
+    || buscarCelda(grid, (t) => t === "gofres");
   if (filaGofresCreps) {
     const filaTotalGC = buscarFilaTotalTrasSueltos(grid, filaGofresCreps.r);
     gofres = parseNumEs(val(filaTotalGC, 8));
