@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-19.1";
+const IL_COSTO_VERSION = "2025-09-19.2";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -680,8 +680,21 @@ function parseCsvGrid(text) {
 
 function parseNumEs(v) {
   if (v === undefined || v === null || v === "") return 0;
-  const limpio = String(v).trim().replace(/\./g, "").replace(",", ".");
-  const n = parseFloat(limpio);
+  let s = String(v).trim();
+  // El CSV de Google Sheets puede venir con coma decimal (formato de visualización
+  // español, "1023,75") o con punto decimal (formato numérico estándar, "1023.75") según
+  // el endpoint. Se detectan ambos: si aparecen los dos símbolos, el último es el decimal
+  // y el otro se trata como separador de miles; si solo aparece uno, se asume que es el
+  // separador decimal salvo que parezca claramente de miles (grupos de 3 dígitos).
+  const iComa = s.lastIndexOf(",");
+  const iPunto = s.lastIndexOf(".");
+  if (iComa !== -1 && iPunto !== -1) {
+    if (iComa > iPunto) s = s.replace(/\./g, "").replace(",", ".");
+    else s = s.replace(/,/g, "");
+  } else if (iComa !== -1) {
+    s = s.replace(",", ".");
+  }
+  const n = parseFloat(s);
   return isNaN(n) ? 0 : n;
 }
 
@@ -703,25 +716,44 @@ async function fetchGoogleSheetRange(docId, sheetName, range) {
   return parseCsvGrid(text);
 }
 
-// Lee de una pestaña semanal: fecha (C5 o D5), litros (C15), macarons (D24),
-// macarons grandiosos (E24), creps (J24), gofres (K24).
+// Interpreta fechas en formato español (día primero): "16/9", "16/9/2026", "16-09-2026"...
+// Si no lleva año, usa el año actual. Si no encaja con ese patrón, prueba con el parseo
+// nativo del navegador (formatos ISO, etc.) como última opción.
+function parseFechaEs(str) {
+  if (!str) return null;
+  const s = String(str).trim();
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/);
+  if (m) {
+    const dia = parseInt(m[1], 10);
+    const mes = parseInt(m[2], 10) - 1;
+    let anio = m[3] ? parseInt(m[3], 10) : new Date().getFullYear();
+    if (anio < 100) anio += 2000;
+    const d = new Date(anio, mes, dia);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const d2 = new Date(s);
+  return isNaN(d2.getTime()) ? null : d2;
+}
+
+// Lee de una pestaña semanal: fecha (C5, o D5 si C5 está vacía y D5 parece una fecha),
+// litros (B15), macarons (D24), macarons grandiosos (E24), creps (J24), gofres (K24).
 async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   const docId = GOOGLE_SHEETS_INVENTARIO[tienda];
   if (!docId) throw new Error(`tienda "${tienda}" no reconocida`);
-  const grid = await fetchGoogleSheetRange(docId, semana, "C5:K24");
+  const grid = await fetchGoogleSheetRange(docId, semana, "B5:K24");
   const get = (fila1based, colLetra) => {
     const r = fila1based - 5; // el rango empieza en la fila 5
-    const c = colLetra.charCodeAt(0) - "C".charCodeAt(0); // el rango empieza en la columna C
+    const c = colLetra.charCodeAt(0) - "B".charCodeAt(0); // el rango empieza en la columna B
     return grid[r] && grid[r][c] !== undefined ? grid[r][c] : "";
   };
-  const fechaRaw = get(5, "C") || get(5, "D");
-  let fecha = null;
-  if (fechaRaw) {
-    const d = new Date(fechaRaw);
-    if (!isNaN(d.getTime())) fecha = d;
-  }
+  const c5 = get(5, "C");
+  const d5 = get(5, "D");
+  // D5 a veces lleva el nombre de quien hizo el recuento (no una fecha) — solo se usa
+  // como respaldo si C5 está vacía Y D5 tiene pinta de fecha (dígitos con / o -).
+  const fechaRaw = c5 || (/\d/.test(d5) && /[\/\-]/.test(d5) ? d5 : "");
+  const fecha = parseFechaEs(fechaRaw);
   return {
-    totalLitros: parseNumEs(get(15, "C")),
+    totalLitros: parseNumEs(get(15, "B")),
     macarons: parseNumEs(get(24, "D")),
     macaronsGrandiosos: parseNumEs(get(24, "E")),
     creps: parseNumEs(get(24, "J")),
