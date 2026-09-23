@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-19.3";
+const IL_COSTO_VERSION = "2025-09-19.4";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -699,7 +699,11 @@ function parseNumEs(v) {
 }
 
 async function fetchGoogleSheetFull(docId, sheetName) {
-  const url = `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+  // Se pide un rango explícito y generoso (A1:Z300) en vez de dejar que Google decida el
+  // rango automáticamente: un rango explícito fuerza a incluir las filas ocultas (lo
+  // confirmamos comparando ambos métodos), mientras que sin rango, Google las omite del
+  // CSV — lo que descuadraba los números de fila frente a lo que se ve al abrir la hoja.
+  const url = `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&range=A1:Z300`;
   let resp;
   try {
     resp = await fetch(url);
@@ -739,37 +743,89 @@ function parseFechaEs(str) {
 // litros (B15), macarons (D24), macarons grandiosos (E24), creps (J24), gofres (K24).
 // Se pide la hoja ENTERA (sin "range") y se indexa por posición absoluta, para no depender
 // de cómo Google resuelve el parámetro "range" cuando hay celdas combinadas de por medio.
+// Busca en toda la rejilla la primera celda cuyo texto (normalizado) cumpla el criterio dado.
+// Devuelve {r, c} (índices dentro de la rejilla) o null si no aparece.
+function buscarCelda(grid, matcher) {
+  for (let r = 0; r < grid.length; r++) {
+    const fila = grid[r];
+    if (!fila) continue;
+    for (let c = 0; c < fila.length; c++) {
+      if (matcher((fila[c] || "").toString().trim().toLowerCase())) return { r, c };
+    }
+  }
+  return null;
+}
+
+// Busca una fila que contenga DOS etiquetas distintas a la vez (p. ej. "Macarons" Y
+// "Macarons Grandiosos" en la misma fila de cabecera) — necesario porque "MACARONS" también
+// aparece solo, como título de sección, en una fila distinta, y una búsqueda simple de
+// "macarons" pillaría esa por error al ser la primera que encuentra.
+function buscarFilaConDosEtiquetas(grid, matcher1, matcher2) {
+  for (let r = 0; r < grid.length; r++) {
+    const fila = grid[r];
+    if (!fila) continue;
+    let c1 = -1, c2 = -1;
+    for (let c = 0; c < fila.length; c++) {
+      const t = (fila[c] || "").toString().trim().toLowerCase();
+      if (c1 === -1 && matcher1(t)) c1 = c;
+      if (c2 === -1 && matcher2(t)) c2 = c;
+    }
+    if (c1 !== -1 && c2 !== -1) return { r, c1, c2 };
+  }
+  return null;
+}
+
+// Lee de una pestaña semanal buscando las etiquetas de texto ("Total Litros", "Macarons",
+// "Macarons Grandiosos", "Gofres", "Creps", "Fecha de recuento") en vez de coordenadas fijas,
+// y toma los valores en la posición relativa a cada etiqueta. Esto es necesario porque la
+// hoja tiene filas ocultas al principio, y el CSV que exporta Google las omite — así que el
+// número de fila "visual" (lo que se ve al abrir el documento) no coincide con el número de
+// fila que llega aquí. Buscando por contenido, da igual cuántas filas estén ocultas o dónde.
 async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   const docId = GOOGLE_SHEETS_INVENTARIO[tienda];
   if (!docId) throw new Error(`tienda "${tienda}" no reconocida`);
   const grid = await fetchGoogleSheetFull(docId, semana);
-  const get = (fila1based, colLetra) => {
-    const r = fila1based - 1;
-    const c = colLetra.charCodeAt(0) - "A".charCodeAt(0);
-    return grid[r] && grid[r][c] !== undefined ? grid[r][c] : "";
-  };
-  const c5 = get(5, "C");
-  const d5 = get(5, "D");
-  // D5 a veces lleva el nombre de quien hizo el recuento (no una fecha) — solo se usa
-  // como respaldo si C5 está vacía Y D5 tiene pinta de fecha (dígitos con / o -).
-  const fechaRaw = c5 || (/\d/.test(d5) && /[\/\-]/.test(d5) ? d5 : "");
-  const fecha = parseFechaEs(fechaRaw);
-  const resultado = {
-    totalLitros: parseNumEs(get(15, "B")),
-    macarons: parseNumEs(get(24, "D")),
-    macaronsGrandiosos: parseNumEs(get(24, "E")),
-    creps: parseNumEs(get(24, "J")),
-    gofres: parseNumEs(get(24, "K")),
-    fecha,
-  };
-  const todoCero = resultado.totalLitros === 0 && resultado.macarons === 0 && resultado.macaronsGrandiosos === 0
-    && resultado.creps === 0 && resultado.gofres === 0;
+  const val = (r, c) => (grid[r] && grid[r][c] !== undefined ? grid[r][c] : "");
+
+  // Fecha: la etiqueta "Fecha de recuento" y el valor va en una de las celdas siguientes
+  // de esa misma fila (normalmente la de al lado, a veces una más allá si hay una celda
+  // vacía de por medio).
+  let fecha = null;
+  const fechaLabel = buscarCelda(grid, (t) => t.includes("fecha de recuento"));
+  if (fechaLabel) {
+    for (let dc = 1; dc <= 3; dc++) {
+      const candidato = val(fechaLabel.r, fechaLabel.c + dc);
+      if (candidato && /\d/.test(candidato)) {
+        const f = parseFechaEs(candidato);
+        if (f) { fecha = f; break; }
+      }
+    }
+  }
+
+  // Litros: la etiqueta "Total Litros" y el número va una fila más abajo, en la misma columna.
+  let totalLitros = 0;
+  const litrosLabel = buscarCelda(grid, (t) => t.includes("total litros"));
+  if (litrosLabel) totalLitros = parseNumEs(val(litrosLabel.r + 1, litrosLabel.c));
+
+  // Macarons / Macarons Grandiosos / Gofres / Creps: se busca la fila de cabecera (donde
+  // aparecen esas cuatro palabras como texto de columna) y el total va 4 filas más abajo,
+  // en la misma columna que cada cabecera (Cajas / Bandejas-Bolsas / Sueltos / Total).
+  const filaMacarons = buscarFilaConDosEtiquetas(grid, (t) => t === "macarons", (t) => t.includes("grandios"));
+  const colGofres = buscarCelda(grid, (t) => t === "gofres");
+  const colCreps = buscarCelda(grid, (t) => t === "creps");
+  const macarons = filaMacarons ? parseNumEs(val(filaMacarons.r + 4, filaMacarons.c1)) : 0;
+  const macaronsGrandiosos = filaMacarons ? parseNumEs(val(filaMacarons.r + 4, filaMacarons.c2)) : 0;
+  const gofres = colGofres ? parseNumEs(val(colGofres.r + 4, colGofres.c)) : 0;
+  const creps = colCreps ? parseNumEs(val(colCreps.r + 4, colCreps.c)) : 0;
+
+  const resultado = { totalLitros, macarons, macaronsGrandiosos, creps, gofres, fecha };
+  const todoCero = totalLitros === 0 && macarons === 0 && macaronsGrandiosos === 0 && creps === 0 && gofres === 0;
   if (todoCero) {
     const diag = [
       `filas recibidas=${grid.length}`,
-      `B14="${get(14, "B")}"`, `B15="${get(15, "B")}"`,
-      `B19="${get(19, "B")}"`, `C20="${get(20, "C")}"`, `D20="${get(20, "D")}"`, `I20="${get(20, "I")}"`, `J20="${get(20, "J")}"`,
-      `D24="${get(24, "D")}"`, `E24="${get(24, "E")}"`, `J24="${get(24, "J")}"`, `K24="${get(24, "K")}"`,
+      `etiqueta "Total Litros" ${litrosLabel ? `encontrada en fila ${litrosLabel.r + 1}` : "NO encontrada"}`,
+      `etiqueta "Macarons" ${filaMacarons ? `encontrada en fila ${filaMacarons.r + 1}` : "NO encontrada"}`,
+      `etiqueta "Fecha de recuento" ${fechaLabel ? `encontrada en fila ${fechaLabel.r + 1}` : "NO encontrada"}`,
     ].join(" · ");
     throw new Error(`todos los valores han salido en 0 — diagnóstico: ${diag}`);
   }
