@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-19.5";
+const IL_COSTO_VERSION = "2025-09-19.6";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -717,7 +717,7 @@ async function fetchGoogleSheetFull(docId, sheetName) {
   if (text.trim().startsWith("<")) {
     throw new Error(`no se pudo leer la pestaña "${sheetName}" (¿el nombre no coincide exactamente, o el documento no es público?)`);
   }
-  return parseCsvGrid(text);
+  return { grid: parseCsvGrid(text), rawText: text };
 }
 
 // Interpreta fechas en formato español (día primero): "16/9", "16/9/2026", "16-09-2026"...
@@ -808,7 +808,7 @@ function buscarFilaConDosEtiquetas(grid, matcher1, matcher2) {
 async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   const docId = GOOGLE_SHEETS_INVENTARIO[tienda];
   if (!docId) throw new Error(`tienda "${tienda}" no reconocida`);
-  const grid = await fetchGoogleSheetFull(docId, semana);
+  const { grid, rawText } = await fetchGoogleSheetFull(docId, semana);
   const val = (r, c) => (grid[r] && grid[r][c] !== undefined ? grid[r][c] : "");
 
   // Fecha: la etiqueta "Fecha de recuento" y el valor va en una de las celdas siguientes
@@ -860,11 +860,13 @@ async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   if (todoCero || materialesEnCero) {
     const diag = [
       `filas recibidas=${grid.length}`,
+      `longitud del texto crudo=${rawText.length}`,
       `etiqueta "Total Litros" ${litrosLabel ? `encontrada en fila ${litrosLabel.r + 1}` : "NO encontrada"}`,
       `etiqueta "Fecha de recuento" ${fechaLabel ? `encontrada en fila ${fechaLabel.r + 1}` : "NO encontrada"}`,
       `cabecera "Macarons" ${filaMacarons ? `encontrada en fila ${filaMacarons.r + 1}, columnas ${filaMacarons.c1}/${filaMacarons.c2}` : "NO encontrada"}`,
       filaMacarons ? `fila de "Sueltos"+1 usada como total: fila ${filaTotal + 1}` : "",
       filaMacarons ? `contenido crudo en esa fila (macarons/macG/gofres/creps): "${val(filaTotal, filaMacarons.c1)}" / "${val(filaTotal, filaMacarons.c2)}" / "${colGofres !== -1 ? val(filaTotal, colGofres) : "col.gofres no encontrada"}" / "${colCreps !== -1 ? val(filaTotal, colCreps) : "col.creps no encontrada"}"` : "",
+      `TEXTO CRUDO (primeros 3000 caracteres): ${JSON.stringify(rawText.slice(0, 3000))}`,
     ].filter(Boolean).join(" · ");
     throw new Error(`no se han podido leer macarons/gofres/creps — diagnóstico: ${diag}`);
   }
