@@ -492,7 +492,20 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-18.6";
+const IL_COSTO_VERSION = "2025-09-18.7";
+
+// IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
+// debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
+// funcione sin iniciar sesión. Si cambia el enlace de alguna tienda, solo hay que actualizar
+// el ID aquí (es la parte del enlace entre "/d/" y "/edit").
+const GOOGLE_SHEETS_INVENTARIO = {
+  "Catedral": "1j9YeDtrT1BLZRd_fVTqAne-wRBhA09sBM8rw-l178aY",
+  "Alcázar": "1BAbeaOJR21yzMSO1Nb3Vuu3OYnNpdXoUYkNKSDyy1bs",
+  "Sevilla Avenida": "1Rq6TJivx947IjertgE17ozuO0xfk2W-4341ugEwVQvU",
+  "Patio de los Naranjos": "148vsZgPt-pSqO1o7L-OAGnRWD7NWpNUkIqvAczl6J-s",
+  "Plaza Nueva": "1NEXb2N07OnbxiBaSn_WjWUX2xgQBz4w6mG00N41RBss",
+};
+const SEMANAS_INVENTARIO = ["Semana 1 del mes", "Semana 2 del mes", "Semana 3 del mes", "Semana 4 del mes"];
 
 const TIENDAS = ["Todas las tiendas (sistema)", "Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
 const MESES = [
@@ -635,6 +648,88 @@ function loadPdfJs() {
 }
 
 // Extrae el texto de un PDF, reconstruyendo líneas aproximadas por coordenada Y.
+// ---------------------------------------------------------------------------
+// Lectura de INVENTARIO SEMANAL desde Google Sheets (sin backend, sin login).
+// Usa el endpoint público "gviz" de Sheets, que devuelve CSV de un rango de una hoja
+// por su nombre — funciona sin autenticación siempre que el documento esté compartido
+// como "Cualquier persona con el enlace puede ver". Si no lo está, o si el nombre de la
+// pestaña no coincide exactamente, la petición falla y se informa al usuario para que
+// use la entrada manual o el archivo en su lugar.
+// ---------------------------------------------------------------------------
+function parseCsvGrid(text) {
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(field); field = ""; rows.push(row); row = [];
+      } else field += c;
+    }
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function parseNumEs(v) {
+  if (v === undefined || v === null || v === "") return 0;
+  const limpio = String(v).trim().replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(limpio);
+  return isNaN(n) ? 0 : n;
+}
+
+async function fetchGoogleSheetRange(docId, sheetName, range) {
+  const url = `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&range=${range}`;
+  let resp;
+  try {
+    resp = await fetch(url);
+  } catch (e) {
+    throw new Error("no se pudo conectar con Google Sheets (¿bloqueado por el navegador o sin conexión?)");
+  }
+  if (!resp.ok) {
+    throw new Error(`Google Sheets respondió con error ${resp.status} (revisa que el documento esté compartido como "Cualquier persona con el enlace puede ver")`);
+  }
+  const text = await resp.text();
+  if (text.trim().startsWith("<")) {
+    throw new Error(`no se pudo leer la pestaña "${sheetName}" (¿el nombre no coincide exactamente, o el documento no es público?)`);
+  }
+  return parseCsvGrid(text);
+}
+
+// Lee de una pestaña semanal: fecha (C5 o D5), litros (C15), macarons (C24),
+// macarons grandiosos (D24), creps (I24), gofres (J24).
+async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
+  const docId = GOOGLE_SHEETS_INVENTARIO[tienda];
+  if (!docId) throw new Error(`tienda "${tienda}" no reconocida`);
+  const grid = await fetchGoogleSheetRange(docId, semana, "C5:J24");
+  const get = (fila1based, colLetra) => {
+    const r = fila1based - 5; // el rango empieza en la fila 5
+    const c = colLetra.charCodeAt(0) - "C".charCodeAt(0); // el rango empieza en la columna C
+    return grid[r] && grid[r][c] !== undefined ? grid[r][c] : "";
+  };
+  const fechaRaw = get(5, "C") || get(5, "D");
+  let fecha = null;
+  if (fechaRaw) {
+    const d = new Date(fechaRaw);
+    if (!isNaN(d.getTime())) fecha = d;
+  }
+  return {
+    totalLitros: parseNumEs(get(15, "C")),
+    macarons: parseNumEs(get(24, "C")),
+    macaronsGrandiosos: parseNumEs(get(24, "D")),
+    creps: parseNumEs(get(24, "I")),
+    gofres: parseNumEs(get(24, "J")),
+    fecha,
+  };
+}
+
 async function extractPdfText(file) {
   const pdfjsLib = await loadPdfJs();
   const buf = await file.arrayBuffer();
@@ -903,6 +998,12 @@ function CosteTeoricoApp() {
   const [invFinalFiles, setInvFinalFiles] = useState([]);
   const [invFinalError, setInvFinalError] = useState("");
   const [invFinalManual, setInvFinalManual] = useState({ totalLitros: 0, macarons: 0, gofres: 0, creps: 0, macaronsGrandiosos: 0 });
+  const [gsheetSel, setGsheetSel] = useState({
+    inicial: { tienda: "", semana: "" },
+    final: { tienda: "", semana: "" },
+  });
+  const [gsheetLoading, setGsheetLoading] = useState({ inicial: false, final: false });
+  const [gsheetError, setGsheetError] = useState({ inicial: "", final: "" });
   const [showCompras, setShowCompras] = useState(false);
   const [compras, setCompras] = useState({ litrosHelado: 0, macarons: 0, gofres: 0, creps: 0, macaronsGrandiosos: 0 });
   const [facturaPreviews, setFacturaPreviews] = useState([]); // pendientes de revisar
@@ -928,6 +1029,9 @@ function CosteTeoricoApp() {
   };
   const [colVisibles, setColVisibles] = useState({
     litrosHelado: true, macarons: true, macaronsGrandiosos: true, gofres: true, creps: true, base: true, importe: false,
+  });
+  const [colAcumVisibles, setColAcumVisibles] = useState({
+    litrosHelado: true, macarons: true, macaronsGrandiosos: true, gofres: true, creps: true,
   });
   const [customAliases, setCustomAliases] = useState({});
   const [ratioOverrides, setRatioOverrides] = useState({});
@@ -1454,6 +1558,22 @@ function CosteTeoricoApp() {
     e.target.value = "";
   };
 
+  const handleCargarGoogleSheet = async (cual) => {
+    const { tienda, semana } = gsheetSel[cual];
+    if (!tienda || !semana) return;
+    setGsheetLoading((s) => ({ ...s, [cual]: true }));
+    setGsheetError((s) => ({ ...s, [cual]: "" }));
+    try {
+      const parsed = await fetchInventarioSemanalGoogleSheet(tienda, semana);
+      const setFiles = cual === "inicial" ? setInvInicialFiles : setInvFinalFiles;
+      const fileName = `${tienda} — ${semana} (Google Sheets)`;
+      setFiles((prev) => [...prev.filter((f) => f.fileName !== fileName), { fileName, sheets: [{ sheetName: semana, parsed }] }]);
+    } catch (err) {
+      setGsheetError((s) => ({ ...s, [cual]: `No se ha podido cargar ${tienda} / ${semana}: ${err.message}` }));
+    }
+    setGsheetLoading((s) => ({ ...s, [cual]: false }));
+  };
+
   const handleRemoveInventarioFile = (cual, fileName) => {
     const setFiles = cual === "inicial" ? setInvInicialFiles : setInvFinalFiles;
     setFiles((prev) => prev.filter((f) => f.fileName !== fileName));
@@ -1865,7 +1985,8 @@ function CosteTeoricoApp() {
                       escandallo de coste encontrado (no cuenta en "Coste teórico", aunque sí pueda tener helado/
                       macarons/gofres/creps asignados si el nombre coincide con esas listas).
                     </p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12, fontSize: 12, color: "#57534E", alignItems: "center" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 6, fontSize: 12, color: "#57534E", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, color: "#9CA3AF", fontWeight: 600 }}>Subtotales:</span>
                       {[
                         ["litrosHelado", "Litros helado"],
                         ["macarons", "Macarons"],
@@ -1893,6 +2014,25 @@ function CosteTeoricoApp() {
                         Ver solo totales (ocultar productos)
                       </label>
                     </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12, fontSize: 12, color: "#57534E", alignItems: "center" }}>
+                      <span style={{ fontSize: 11, color: "#9CA3AF", fontWeight: 600 }}>Acumulados:</span>
+                      {[
+                        ["litrosHelado", "Litros helado"],
+                        ["macarons", "Macarons"],
+                        ["macaronsGrandiosos", "Mac. Grandiosos"],
+                        ["gofres", "Gofres"],
+                        ["creps", "Creps"],
+                      ].map(([k, lbl]) => (
+                        <label key={"ac-" + k} style={{ display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={colAcumVisibles[k]}
+                            onChange={() => setColAcumVisibles((c) => ({ ...c, [k]: !c[k] }))}
+                          />
+                          {lbl}
+                        </label>
+                      ))}
+                    </div>
                     <div className="il-costo-scroll" style={{ overflowX: "auto", border: "1px solid #ECE4D6", borderRadius: 8 }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
                         <thead>
@@ -1900,15 +2040,15 @@ function CosteTeoricoApp() {
                             <th style={{ padding: "7px 12px" }}>Producto</th>
                             <th style={{ padding: "7px 12px", textAlign: "right" }}>Ud</th>
                             {colVisibles.litrosHelado && <th style={{ padding: "7px 12px", textAlign: "right" }}>Litros helado</th>}
-                            {colVisibles.litrosHelado && <th style={{ padding: "7px 12px", textAlign: "right", color: "#C9CDD3", fontWeight: 500 }}>Acum. L</th>}
+                            {colAcumVisibles.litrosHelado && <th style={{ padding: "7px 12px", textAlign: "right", color: "#C9CDD3", fontWeight: 500 }}>Acum. L</th>}
                             {colVisibles.macarons && <th style={{ padding: "7px 12px", textAlign: "right" }}>Macarons</th>}
-                            {colVisibles.macarons && <th style={{ padding: "7px 12px", textAlign: "right", color: "#C9CDD3", fontWeight: 500 }}>Acum.</th>}
+                            {colAcumVisibles.macarons && <th style={{ padding: "7px 12px", textAlign: "right", color: "#C9CDD3", fontWeight: 500 }}>Acum.</th>}
                             {colVisibles.macaronsGrandiosos && <th style={{ padding: "7px 12px", textAlign: "right" }}>Mac. Grandiosos</th>}
-                            {colVisibles.macaronsGrandiosos && <th style={{ padding: "7px 12px", textAlign: "right", color: "#C9CDD3", fontWeight: 500 }}>Acum.</th>}
+                            {colAcumVisibles.macaronsGrandiosos && <th style={{ padding: "7px 12px", textAlign: "right", color: "#C9CDD3", fontWeight: 500 }}>Acum.</th>}
                             {colVisibles.gofres && <th style={{ padding: "7px 12px", textAlign: "right" }}>Gofres</th>}
-                            {colVisibles.gofres && <th style={{ padding: "7px 12px", textAlign: "right", color: "#C9CDD3", fontWeight: 500 }}>Acum.</th>}
+                            {colAcumVisibles.gofres && <th style={{ padding: "7px 12px", textAlign: "right", color: "#C9CDD3", fontWeight: 500 }}>Acum.</th>}
                             {colVisibles.creps && <th style={{ padding: "7px 12px", textAlign: "right" }}>Creps</th>}
-                            {colVisibles.creps && <th style={{ padding: "7px 12px", textAlign: "right", color: "#C9CDD3", fontWeight: 500 }}>Acum.</th>}
+                            {colAcumVisibles.creps && <th style={{ padding: "7px 12px", textAlign: "right", color: "#C9CDD3", fontWeight: 500 }}>Acum.</th>}
                             {colVisibles.base && <th style={{ padding: "7px 12px", textAlign: "right" }}>Fact. neta</th>}
                             {colVisibles.importe && <th style={{ padding: "7px 12px", textAlign: "right" }}>Fact. bruta</th>}
                           </tr>
@@ -1918,7 +2058,7 @@ function CosteTeoricoApp() {
                           {productosConsolidados.lista.map((p, i) => {
                             const panel = panelesAbiertos[p.producto] || { tienda: false, escandallo: false };
                             const nCols = 2 + Object.values(colVisibles).filter(Boolean).length
-                              + ["litrosHelado", "macarons", "macaronsGrandiosos", "gofres", "creps"].filter((k) => colVisibles[k]).length;
+                              + Object.values(colAcumVisibles).filter(Boolean).length;
                             const fLitros = formulaLitros(p);
                             const fMacarons = formulaMaterial(p.macaronsMult, p.macarons, p.ud);
                             const fMacaronsG = formulaMaterial(p.macaronsGrandiososMult, p.macaronsGrandiosos, p.ud);
@@ -1968,7 +2108,7 @@ function CosteTeoricoApp() {
                                     ) : "—"}
                                   </td>
                                 )}
-                                {colVisibles.litrosHelado && (
+                                {colAcumVisibles.litrosHelado && (
                                   <td style={{ padding: "6px 12px", textAlign: "right", color: "#B0A99A", fontSize: 11.5 }}>
                                     {p.acumLitrosHelado.toFixed(2)}
                                   </td>
@@ -1983,7 +2123,7 @@ function CosteTeoricoApp() {
                                     ) : "—"}
                                   </td>
                                 )}
-                                {colVisibles.macarons && (
+                                {colAcumVisibles.macarons && (
                                   <td style={{ padding: "6px 12px", textAlign: "right", color: "#B0A99A", fontSize: 11.5 }}>
                                     {fmtNum(p.acumMacarons)}
                                   </td>
@@ -1998,7 +2138,7 @@ function CosteTeoricoApp() {
                                     ) : "—"}
                                   </td>
                                 )}
-                                {colVisibles.macaronsGrandiosos && (
+                                {colAcumVisibles.macaronsGrandiosos && (
                                   <td style={{ padding: "6px 12px", textAlign: "right", color: "#B0A99A", fontSize: 11.5 }}>
                                     {fmtNum(p.acumMacaronsGrandiosos)}
                                   </td>
@@ -2013,7 +2153,7 @@ function CosteTeoricoApp() {
                                     ) : "—"}
                                   </td>
                                 )}
-                                {colVisibles.gofres && (
+                                {colAcumVisibles.gofres && (
                                   <td style={{ padding: "6px 12px", textAlign: "right", color: "#B0A99A", fontSize: 11.5 }}>
                                     {fmtNum(p.acumGofres)}
                                   </td>
@@ -2028,7 +2168,7 @@ function CosteTeoricoApp() {
                                     ) : "—"}
                                   </td>
                                 )}
-                                {colVisibles.creps && (
+                                {colAcumVisibles.creps && (
                                   <td style={{ padding: "6px 12px", textAlign: "right", color: "#B0A99A", fontSize: 11.5 }}>
                                     {fmtNum(p.acumCreps)}
                                   </td>
@@ -2088,15 +2228,15 @@ function CosteTeoricoApp() {
                             <td style={{ padding: "8px 12px" }}>TOTAL ({productosConsolidados.lista.length} productos)</td>
                             <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.ud)}</td>
                             {colVisibles.litrosHelado && <td style={{ padding: "8px 12px", textAlign: "right" }}>{productosConsolidados.totales.litrosHelado.toFixed(2)}</td>}
-                            {colVisibles.litrosHelado && <td style={{ padding: "8px 12px", textAlign: "right", color: "#92400E" }}>{productosConsolidados.totales.litrosHelado.toFixed(2)}</td>}
+                            {colAcumVisibles.litrosHelado && <td style={{ padding: "8px 12px", textAlign: "right", color: "#92400E" }}>{productosConsolidados.totales.litrosHelado.toFixed(2)}</td>}
                             {colVisibles.macarons && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.macarons)}</td>}
-                            {colVisibles.macarons && <td style={{ padding: "8px 12px", textAlign: "right", color: "#92400E" }}>{fmtNum(productosConsolidados.totales.macarons)}</td>}
+                            {colAcumVisibles.macarons && <td style={{ padding: "8px 12px", textAlign: "right", color: "#92400E" }}>{fmtNum(productosConsolidados.totales.macarons)}</td>}
                             {colVisibles.macaronsGrandiosos && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.macaronsGrandiosos)}</td>}
-                            {colVisibles.macaronsGrandiosos && <td style={{ padding: "8px 12px", textAlign: "right", color: "#92400E" }}>{fmtNum(productosConsolidados.totales.macaronsGrandiosos)}</td>}
+                            {colAcumVisibles.macaronsGrandiosos && <td style={{ padding: "8px 12px", textAlign: "right", color: "#92400E" }}>{fmtNum(productosConsolidados.totales.macaronsGrandiosos)}</td>}
                             {colVisibles.gofres && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.gofres)}</td>}
-                            {colVisibles.gofres && <td style={{ padding: "8px 12px", textAlign: "right", color: "#92400E" }}>{fmtNum(productosConsolidados.totales.gofres)}</td>}
+                            {colAcumVisibles.gofres && <td style={{ padding: "8px 12px", textAlign: "right", color: "#92400E" }}>{fmtNum(productosConsolidados.totales.gofres)}</td>}
                             {colVisibles.creps && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtNum(productosConsolidados.totales.creps)}</td>}
-                            {colVisibles.creps && <td style={{ padding: "8px 12px", textAlign: "right", color: "#92400E" }}>{fmtNum(productosConsolidados.totales.creps)}</td>}
+                            {colAcumVisibles.creps && <td style={{ padding: "8px 12px", textAlign: "right", color: "#92400E" }}>{fmtNum(productosConsolidados.totales.creps)}</td>}
                             {colVisibles.base && <td style={{ padding: "8px 12px", textAlign: "right" }}>{productosConsolidados.totales.baseTieneDatos ? fmtEUR(productosConsolidados.totales.base) : "—"}</td>}
                             {colVisibles.importe && <td style={{ padding: "8px 12px", textAlign: "right" }}>{fmtEUR(productosConsolidados.totales.importe)}</td>}
                           </tr>
@@ -2337,6 +2477,56 @@ function CosteTeoricoApp() {
                       ))}
                     </div>
                   )}
+
+                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid #F1EBDD" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#78716C", marginBottom: 8 }}>
+                      + Google Sheets (inventario semanal)
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: 11, color: "#9CA3AF", marginBottom: 2 }}>Tienda</label>
+                        <select
+                          value={gsheetSel[key].tienda}
+                          onChange={(e) => setGsheetSel((s) => ({ ...s, [key]: { ...s[key], tienda: e.target.value } }))}
+                          style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E0D5", borderRadius: 6, padding: "5px 8px", fontSize: 12.5, background: "#FFFDF9" }}
+                        >
+                          <option value="">— elegir —</option>
+                          {Object.keys(GOOGLE_SHEETS_INVENTARIO).map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: 11, color: "#9CA3AF", marginBottom: 2 }}>Semana</label>
+                        <select
+                          value={gsheetSel[key].semana}
+                          onChange={(e) => setGsheetSel((s) => ({ ...s, [key]: { ...s[key], semana: e.target.value } }))}
+                          style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E0D5", borderRadius: 6, padding: "5px 8px", fontSize: 12.5, background: "#FFFDF9" }}
+                        >
+                          <option value="">— elegir —</option>
+                          {SEMANAS_INVENTARIO.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleCargarGoogleSheet(key)}
+                      disabled={!gsheetSel[key].tienda || !gsheetSel[key].semana || gsheetLoading[key]}
+                      style={{
+                        background: "#FEF3E7", border: "1px solid #F5D9AE", borderRadius: 8, padding: "6px 12px",
+                        fontSize: 12.5, fontWeight: 600, color: "#92400E",
+                        cursor: (!gsheetSel[key].tienda || !gsheetSel[key].semana || gsheetLoading[key]) ? "not-allowed" : "pointer",
+                        opacity: (!gsheetSel[key].tienda || !gsheetSel[key].semana) ? 0.5 : 1,
+                      }}
+                    >
+                      {gsheetLoading[key] ? "Cargando…" : "Cargar de Google Sheets"}
+                    </button>
+                    {gsheetError[key] && <div style={{ marginTop: 6, fontSize: 11.5, color: "#B91C1C" }}>{gsheetError[key]}</div>}
+                    <div style={{ marginTop: 6, fontSize: 10.5, color: "#B0A99A" }}>
+                      Requiere que el documento esté compartido como "cualquier persona con el enlace puede ver".
+                    </div>
+                  </div>
 
                   <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid #F1EBDD" }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "#78716C", marginBottom: 8 }}>
