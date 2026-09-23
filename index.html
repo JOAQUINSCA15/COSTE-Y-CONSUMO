@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-20.3";
+const IL_COSTO_VERSION = "2025-09-20.4";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -891,7 +891,14 @@ async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
         continue;
       }
       const { resultado, huboAlgunaEtiqueta } = extraerInventarioDeRejilla(grid);
-      if (huboAlgunaEtiqueta) return resultado;
+      if (huboAlgunaEtiqueta) {
+        // Registro siempre en consola (F12 → Console), tanto si sale bien como si los
+        // números parecen raros, para poder depurar sin depender de que salte un error.
+        try {
+          console.log(`[Il Costo] ${tienda} / ${nombre} — CSV crudo (primeros 3000 car.):`, rawText.slice(0, 3000));
+        } catch (e) {}
+        return resultado;
+      }
       intentos.push(`"${nombre}": sin etiquetas reconocibles (primeros 200 car.: ${JSON.stringify(rawText.slice(0, 200))})`);
     } catch (e) {
       intentos.push(`"${nombre}": error — ${e.message}`);
