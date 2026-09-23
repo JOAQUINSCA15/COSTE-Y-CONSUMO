@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-19.2";
+const IL_COSTO_VERSION = "2025-09-19.3";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -698,8 +698,8 @@ function parseNumEs(v) {
   return isNaN(n) ? 0 : n;
 }
 
-async function fetchGoogleSheetRange(docId, sheetName, range) {
-  const url = `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&range=${range}`;
+async function fetchGoogleSheetFull(docId, sheetName) {
+  const url = `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
   let resp;
   try {
     resp = await fetch(url);
@@ -737,13 +737,15 @@ function parseFechaEs(str) {
 
 // Lee de una pestaña semanal: fecha (C5, o D5 si C5 está vacía y D5 parece una fecha),
 // litros (B15), macarons (D24), macarons grandiosos (E24), creps (J24), gofres (K24).
+// Se pide la hoja ENTERA (sin "range") y se indexa por posición absoluta, para no depender
+// de cómo Google resuelve el parámetro "range" cuando hay celdas combinadas de por medio.
 async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   const docId = GOOGLE_SHEETS_INVENTARIO[tienda];
   if (!docId) throw new Error(`tienda "${tienda}" no reconocida`);
-  const grid = await fetchGoogleSheetRange(docId, semana, "B5:K24");
+  const grid = await fetchGoogleSheetFull(docId, semana);
   const get = (fila1based, colLetra) => {
-    const r = fila1based - 5; // el rango empieza en la fila 5
-    const c = colLetra.charCodeAt(0) - "B".charCodeAt(0); // el rango empieza en la columna B
+    const r = fila1based - 1;
+    const c = colLetra.charCodeAt(0) - "A".charCodeAt(0);
     return grid[r] && grid[r][c] !== undefined ? grid[r][c] : "";
   };
   const c5 = get(5, "C");
@@ -752,7 +754,7 @@ async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   // como respaldo si C5 está vacía Y D5 tiene pinta de fecha (dígitos con / o -).
   const fechaRaw = c5 || (/\d/.test(d5) && /[\/\-]/.test(d5) ? d5 : "");
   const fecha = parseFechaEs(fechaRaw);
-  return {
+  const resultado = {
     totalLitros: parseNumEs(get(15, "B")),
     macarons: parseNumEs(get(24, "D")),
     macaronsGrandiosos: parseNumEs(get(24, "E")),
@@ -760,6 +762,18 @@ async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
     gofres: parseNumEs(get(24, "K")),
     fecha,
   };
+  const todoCero = resultado.totalLitros === 0 && resultado.macarons === 0 && resultado.macaronsGrandiosos === 0
+    && resultado.creps === 0 && resultado.gofres === 0;
+  if (todoCero) {
+    const diag = [
+      `filas recibidas=${grid.length}`,
+      `B14="${get(14, "B")}"`, `B15="${get(15, "B")}"`,
+      `B19="${get(19, "B")}"`, `C20="${get(20, "C")}"`, `D20="${get(20, "D")}"`, `I20="${get(20, "I")}"`, `J20="${get(20, "J")}"`,
+      `D24="${get(24, "D")}"`, `E24="${get(24, "E")}"`, `J24="${get(24, "J")}"`, `K24="${get(24, "K")}"`,
+    ].join(" · ");
+    throw new Error(`todos los valores han salido en 0 — diagnóstico: ${diag}`);
+  }
+  return resultado;
 }
 
 async function extractPdfText(file) {
