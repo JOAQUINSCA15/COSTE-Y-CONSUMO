@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-20.2";
+const IL_COSTO_VERSION = "2025-09-20.3";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -855,23 +855,45 @@ function extraerInventarioDeRejilla(grid) {
   return { resultado: { totalLitros, macarons, macaronsGrandiosos, creps, gofres, fecha }, huboAlgunaEtiqueta };
 }
 
+// Busca el título "SEMANA X DEL MES" dentro de la rejilla y devuelve el número X — sirve
+// para comprobar que la pestaña devuelta es de verdad la que se ha pedido, ya que las 4
+// semanas comparten exactamente las mismas etiquetas (Fecha de recuento, Total Litros,
+// MACARONS...), así que "se ha encontrado alguna etiqueta" no basta para distinguirlas si
+// Google devuelve una pestaña equivocada por defecto.
+function buscarNumeroSemanaEnTitulo(grid) {
+  const c = buscarCelda(grid, (t) => /semana\s*\d+\s*del\s*mes/.test(t));
+  if (!c) return null;
+  const texto = (grid[c.r][c.c] || "").toString();
+  const m = texto.match(/semana\s*(\d+)\s*del\s*mes/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   const docId = GOOGLE_SHEETS_INVENTARIO[tienda];
   if (!docId) throw new Error(`tienda "${tienda}" no reconocida`);
 
+  const numeroEsperado = (() => {
+    const m = semana.match(/semana\s*(\d+)/i);
+    return m ? parseInt(m[1], 10) : null;
+  })();
+
   const nombresCandidatos = [semana, ...(SEMANA_NOMBRES_ALTERNATIVOS[semana] || [])];
-  let ultimoError = null;
   const intentos = [];
   for (const nombre of nombresCandidatos) {
     try {
       const { grid, rawText } = await fetchGoogleSheetFull(docId, nombre);
+      const numeroEncontrado = buscarNumeroSemanaEnTitulo(grid);
+      if (numeroEsperado !== null && numeroEncontrado !== null && numeroEncontrado !== numeroEsperado) {
+        // Google ha devuelto la pestaña de OTRA semana (probablemente porque el nombre
+        // pedido no coincide exactamente con ninguna pestaña real) — no se acepta, se
+        // prueba el siguiente nombre candidato en vez de dar por buenos estos datos.
+        intentos.push(`"${nombre}": Google devolvió la pestaña de "Semana ${numeroEncontrado}" en vez de la ${numeroEsperado} pedida`);
+        continue;
+      }
       const { resultado, huboAlgunaEtiqueta } = extraerInventarioDeRejilla(grid);
-      // Si no se reconoce ninguna etiqueta, esta pestaña probablemente no es la correcta
-      // (Google puede devolver otra por defecto sin avisar) — se prueba el siguiente nombre.
       if (huboAlgunaEtiqueta) return resultado;
       intentos.push(`"${nombre}": sin etiquetas reconocibles (primeros 200 car.: ${JSON.stringify(rawText.slice(0, 200))})`);
     } catch (e) {
-      ultimoError = e;
       intentos.push(`"${nombre}": error — ${e.message}`);
     }
   }
