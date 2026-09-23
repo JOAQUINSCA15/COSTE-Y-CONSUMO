@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-19.8";
+const IL_COSTO_VERSION = "2025-09-19.9";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -703,10 +703,13 @@ async function fetchGoogleSheetFull(docId, sheetName) {
   // rango automáticamente: un rango explícito fuerza a incluir las filas ocultas (lo
   // confirmamos comparando ambos métodos), mientras que sin rango, Google las omite del
   // CSV — lo que descuadraba los números de fila frente a lo que se ve al abrir la hoja.
-  const url = `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&range=A1:Z300`;
+  // Se añade "&_=<marca de tiempo>" y "cache: no-store" para evitar que el navegador (o
+  // algún proxy intermedio) sirva una respuesta guardada en caché en vez de pedir la
+  // versión más reciente de la hoja cada vez que se carga.
+  const url = `https://docs.google.com/spreadsheets/d/${docId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}&range=A1:Z300&_=${Date.now()}`;
   let resp;
   try {
-    resp = await fetch(url);
+    resp = await fetch(url, { cache: "no-store" });
   } catch (e) {
     throw new Error("no se pudo conectar con Google Sheets (¿bloqueado por el navegador o sin conexión?)");
   }
