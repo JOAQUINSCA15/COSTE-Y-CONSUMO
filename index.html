@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-18.7";
+const IL_COSTO_VERSION = "2025-09-19.1";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -703,12 +703,12 @@ async function fetchGoogleSheetRange(docId, sheetName, range) {
   return parseCsvGrid(text);
 }
 
-// Lee de una pestaña semanal: fecha (C5 o D5), litros (C15), macarons (C24),
-// macarons grandiosos (D24), creps (I24), gofres (J24).
+// Lee de una pestaña semanal: fecha (C5 o D5), litros (C15), macarons (D24),
+// macarons grandiosos (E24), creps (J24), gofres (K24).
 async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   const docId = GOOGLE_SHEETS_INVENTARIO[tienda];
   if (!docId) throw new Error(`tienda "${tienda}" no reconocida`);
-  const grid = await fetchGoogleSheetRange(docId, semana, "C5:J24");
+  const grid = await fetchGoogleSheetRange(docId, semana, "C5:K24");
   const get = (fila1based, colLetra) => {
     const r = fila1based - 5; // el rango empieza en la fila 5
     const c = colLetra.charCodeAt(0) - "C".charCodeAt(0); // el rango empieza en la columna C
@@ -722,10 +722,10 @@ async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   }
   return {
     totalLitros: parseNumEs(get(15, "C")),
-    macarons: parseNumEs(get(24, "C")),
-    macaronsGrandiosos: parseNumEs(get(24, "D")),
-    creps: parseNumEs(get(24, "I")),
-    gofres: parseNumEs(get(24, "J")),
+    macarons: parseNumEs(get(24, "D")),
+    macaronsGrandiosos: parseNumEs(get(24, "E")),
+    creps: parseNumEs(get(24, "J")),
+    gofres: parseNumEs(get(24, "K")),
     fecha,
   };
 }
