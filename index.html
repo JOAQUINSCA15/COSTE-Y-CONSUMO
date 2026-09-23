@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-19.9";
+const IL_COSTO_VERSION = "2025-09-20.1";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -506,6 +506,12 @@ const GOOGLE_SHEETS_INVENTARIO = {
   "Plaza Nueva": "1NEXb2N07OnbxiBaSn_WjWUX2xgQBz4w6mG00N41RBss",
 };
 const SEMANAS_INVENTARIO = ["Semana 1 del mes", "Semana 2 del mes", "Semana 3 del mes", "Semana 4 del mes"];
+// Algunas tiendas nombran alguna pestaña de forma ligeramente distinta (p. ej. Alcázar llama
+// a la de la semana 4 "Semana 4 del mes (el 1 del mes siguiente)"). Si el nombre estándar no
+// existe en el documento, se prueba con estas variantes antes de darlo por fallido.
+const SEMANA_NOMBRES_ALTERNATIVOS = {
+  "Semana 4 del mes": ["Semana 4 del mes (el 1 del mes siguiente)"],
+};
 
 const TIENDAS = ["Todas las tiendas (sistema)", "Alcázar", "Catedral", "Patio de los Naranjos", "Plaza Nueva", "Sevilla Avenida"];
 const MESES = [
@@ -811,7 +817,23 @@ function buscarFilaConDosEtiquetas(grid, matcher1, matcher2) {
 async function fetchInventarioSemanalGoogleSheet(tienda, semana) {
   const docId = GOOGLE_SHEETS_INVENTARIO[tienda];
   if (!docId) throw new Error(`tienda "${tienda}" no reconocida`);
-  const { grid, rawText } = await fetchGoogleSheetFull(docId, semana);
+  let grid, rawText;
+  try {
+    ({ grid, rawText } = await fetchGoogleSheetFull(docId, semana));
+  } catch (errPrimero) {
+    const alternativas = SEMANA_NOMBRES_ALTERNATIVOS[semana] || [];
+    let exito = false;
+    for (const nombreAlt of alternativas) {
+      try {
+        ({ grid, rawText } = await fetchGoogleSheetFull(docId, nombreAlt));
+        exito = true;
+        break;
+      } catch (e) {
+        // sigue probando la siguiente variante, si la hay
+      }
+    }
+    if (!exito) throw errPrimero;
+  }
   const val = (r, c) => (grid[r] && grid[r][c] !== undefined ? grid[r][c] : "");
 
   // Fecha: la etiqueta "Fecha de recuento" y el valor va en una de las celdas siguientes
