@@ -12,7 +12,7 @@
   <body style="margin:0;">
     <div id="root"></div>
     <script type="text/babel" data-presets="react">
-const { useState, useMemo, useEffect, useCallback, Fragment } = React;
+const { useState, useMemo, useEffect, useCallback, useRef, Fragment } = React;
 
 // ---------------------------------------------------------------------------
 // Datos base: escandallos (ratio de coste = coste / precio de venta)
@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-20.6";
+const IL_COSTO_VERSION = "2025-09-20.7";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -533,6 +533,7 @@ function extractFullFormatRow(cells) {
   const producto = cells[3];
   if (typeof producto !== "string" || !producto.trim()) return null;
   const rawTienda = cells[0];
+  const rawCategoria = cells[1];
   const rawUd = cells[5];
   const rawBase = cells[6];
   const rawImporte = cells[7];
@@ -541,7 +542,8 @@ function extractFullFormatRow(cells) {
   const importe = typeof rawImporte === "number" ? rawImporte : parseNumber(rawImporte);
   if (importe === null || importe < 0) return null;
   const tienda = typeof rawTienda === "string" && rawTienda.trim() ? rawTienda.trim() : null;
-  return { producto: producto.trim(), unidades, base, importe, tienda };
+  const categoria = typeof rawCategoria === "string" && rawCategoria.trim() ? rawCategoria.trim() : null;
+  return { producto: producto.trim(), unidades, base, importe, tienda, categoria };
 }
 
 function parseWorkbookRows(aoa) {
@@ -1084,6 +1086,88 @@ function parseSalesInput(text) {
 // ---------------------------------------------------------------------------
 // Componente principal
 // ---------------------------------------------------------------------------
+// Gráfico de barras horizontales (SVG, sin librerías externas) para comparar familias por
+// unidades o por facturación, con botón de descarga como imagen PNG.
+function GraficoBarrasFamilia({ titulo, datos, valorKey, formatEtiqueta, colorBarra }) {
+  const svgRef = useRef(null);
+  const filas = datos.filter((d) => d[valorKey] > 0);
+  const maxValor = filas.length ? Math.max(...filas.map((d) => d[valorKey])) : 1;
+  const altoFila = 30;
+  const padSup = 10;
+  const anchoTotal = 640;
+  const anchoEtiqueta = 150;
+  const anchoBarrasMax = anchoTotal - anchoEtiqueta - 90;
+  const altoSvg = padSup * 2 + filas.length * altoFila;
+
+  const descargar = () => {
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
+    const svgTexto = new XMLSerializer().serializeToString(svgEl);
+    const svgConFondo = svgTexto.replace(
+      "<svg",
+      `<svg style="background:#ffffff"`
+    );
+    const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgConFondo);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const escala = 2; // más resolución para que se vea bien ampliado
+      canvas.width = anchoTotal * escala;
+      canvas.height = altoSvg * escala;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.scale(escala, escala);
+      ctx.drawImage(img, 0, 0);
+      const pngUrl = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = pngUrl;
+      a.download = `${titulo.toLowerCase().replace(/[^a-z0-9]+/g, "_")}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+    img.src = url;
+  };
+
+  return (
+    <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 12, padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontWeight: 700, fontSize: 13.5 }}>{titulo}</span>
+        <button
+          onClick={descargar}
+          style={{ background: "#FEF3E7", border: "1px solid #F5D9AE", borderRadius: 7, padding: "4px 10px", fontSize: 11.5, fontWeight: 600, color: "#92400E", cursor: "pointer" }}
+        >
+          📥 Descargar PNG
+        </button>
+      </div>
+      {filas.length === 0 ? (
+        <p style={{ fontSize: 12, color: "#9CA3AF" }}>Sin datos para mostrar.</p>
+      ) : (
+        <div className="il-costo-scroll" style={{ overflowX: "auto" }}>
+          <svg ref={svgRef} width={anchoTotal} height={altoSvg} viewBox={`0 0 ${anchoTotal} ${altoSvg}`} xmlns="http://www.w3.org/2000/svg">
+            {filas.map((d, i) => {
+              const y = padSup + i * altoFila;
+              const anchoBarra = Math.max(2, (d[valorKey] / maxValor) * anchoBarrasMax);
+              return (
+                <g key={d.familia}>
+                  <text x={anchoEtiqueta - 8} y={y + altoFila / 2 + 4} textAnchor="end" fontSize="12" fill="#374151" fontFamily="sans-serif">
+                    {d.familia}
+                  </text>
+                  <rect x={anchoEtiqueta} y={y + 4} width={anchoBarra} height={altoFila - 10} rx="3" fill={colorBarra} />
+                  <text x={anchoEtiqueta + anchoBarra + 8} y={y + altoFila / 2 + 4} fontSize="11.5" fill="#57534E" fontFamily="sans-serif">
+                    {formatEtiqueta(d[valorKey])}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Desglose de ingredientes de un producto (escandallo completo), usado como fila expandible
 // en las listas de "Imputación" y de consumo de materias primas.
 function IngredientBreakdown({ detalle, colSpan }) {
@@ -1198,6 +1282,7 @@ function CosteTeoricoApp() {
   const [showCreps, setShowCreps] = useState(false);
   const [expandedKey, setExpandedKey] = useState(null);
   const [showTodosProductos, setShowTodosProductos] = useState(true);
+  const [showGraficosFamilia, setShowGraficosFamilia] = useState(false);
   const [soloTotalesProductos, setSoloTotalesProductos] = useState(false);
   const [showResultadosPrincipales, setShowResultadosPrincipales] = useState(true);
   const [showLitrosHeladoSection, setShowLitrosHeladoSection] = useState(true);
@@ -1621,6 +1706,24 @@ function CosteTeoricoApp() {
     );
     return { lista, sinEscandalloCount, totales };
   }, [results, resolveDetalle]);
+
+  // Resumen por familia (Categoria): unidades y facturación, para los gráficos desplegables.
+  const familiasResumen = useMemo(() => {
+    if (!results) return null;
+    const porFamilia = new Map();
+    for (const r of results.rows) {
+      const key = r.categoria || "(sin categoría)";
+      if (!porFamilia.has(key)) porFamilia.set(key, { familia: key, ud: 0, importe: 0, base: 0, baseTieneDatos: false });
+      const acc = porFamilia.get(key);
+      acc.ud += r.unidades || 0;
+      acc.importe += r.importe || 0;
+      if (r.base !== null && r.base !== undefined) { acc.base += r.base; acc.baseTieneDatos = true; }
+    }
+    const lista = Array.from(porFamilia.values());
+    const porUnidades = [...lista].sort((a, b) => b.ud - a.ud);
+    const porFacturacion = [...lista].sort((a, b) => b.importe - a.importe);
+    return { porUnidades, porFacturacion };
+  }, [results]);
 
   function combineInventario(files, manual) {
     const agg = files.length
@@ -2192,6 +2295,38 @@ function CosteTeoricoApp() {
         {/* Resultados: Coste Teórico */}
         {results && activeTab === "teorico" && (
           <>
+            {/* Consumo por familia: gráficos desplegables y descargables */}
+            {familiasResumen && (
+              <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 28 }}>
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: showGraficosFamilia ? 14 : 0 }}
+                  onClick={() => setShowGraficosFamilia((s) => !s)}
+                >
+                  <span style={{ fontSize: 18 }}>{showGraficosFamilia ? "▾" : "▸"}</span>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>📊 Consumo por familia</span>
+                  <span style={{ fontSize: 12, color: "#9CA3AF" }}>qué familias se venden más, en unidades y en facturación</span>
+                </div>
+                {showGraficosFamilia && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 16 }}>
+                    <GraficoBarrasFamilia
+                      titulo="Unidades vendidas por familia"
+                      datos={familiasResumen.porUnidades}
+                      valorKey="ud"
+                      formatEtiqueta={(v) => fmtNum(v)}
+                      colorBarra="#D97706"
+                    />
+                    <GraficoBarrasFamilia
+                      titulo="Facturación por familia"
+                      datos={familiasResumen.porFacturacion}
+                      valorKey="importe"
+                      formatEtiqueta={(v) => fmtEUR(v)}
+                      colorBarra="#15803D"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Todos los productos consumidos (tabla consolidada, fusionada entre tiendas/archivos) */}
             {productosConsolidados && (
               <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, padding: 20, marginBottom: 28 }}>
