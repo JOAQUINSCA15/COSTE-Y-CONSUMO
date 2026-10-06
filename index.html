@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-20.8";
+const IL_COSTO_VERSION = "2025-09-20.9";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -1285,6 +1285,7 @@ function CosteTeoricoApp() {
   const [showGraficosFamilia, setShowGraficosFamilia] = useState(false);
   const [soloTotalesProductos, setSoloTotalesProductos] = useState(false);
   const [showResultadosPrincipales, setShowResultadosPrincipales] = useState(true);
+  const [ventaNetaManual, setVentaNetaManual] = useState(""); // "" = usar la venta neta de los archivos
   const [showLitrosHeladoSection, setShowLitrosHeladoSection] = useState(true);
   const [panelesAbiertos, setPanelesAbiertos] = useState({}); // { [producto]: { tienda: bool, escandallo: bool } }
   const togglePanel = (producto, panel) => {
@@ -1757,8 +1758,15 @@ function CosteTeoricoApp() {
     [invFinalFiles, invFinalManual]
   );
 
+  // Venta neta (sin IVA) usada como denominador de los ratios: por defecto la de los archivos, editable
+  const ventaNetaArchivos = results ? results.totalVentaNeta : 0;
+  const ventaNetaEditada = ventaNetaManual !== "" && parseNumEs(ventaNetaManual) > 0;
+  const ventaNetaUsada = ventaNetaEditada ? parseNumEs(ventaNetaManual) : ventaNetaArchivos;
+
   const costeReal = useMemo(() => {
     if (!results || !invInicial || !invFinal) return null;
+    // Si se edita la venta neta global, la venta de cada familia se escala en la misma proporción
+    const factorVenta = results.totalVentaNeta > 0 ? ventaNetaUsada / results.totalVentaNeta : 1;
 
     const consumoRealLitros = invInicial.totalLitros + Number(compras.litrosHelado || 0) - invFinal.totalLitros;
     const consumoRealMacarons = invInicial.macarons + Number(compras.macarons || 0) - invFinal.macarons;
@@ -1766,14 +1774,15 @@ function CosteTeoricoApp() {
     const consumoRealGofres = invInicial.gofres + Number(compras.gofres || 0) - invFinal.gofres;
     const consumoRealCreps = invInicial.creps + Number(compras.creps || 0) - invFinal.creps;
 
-    function compara(real, teorico, precioUnitario, ventaFamilia) {
+    function compara(real, teorico, precioUnitario, ventaFamiliaBase) {
+      const ventaFamilia = ventaFamiliaBase * factorVenta;
       const delta = real - teorico;
       const deltaPct = teorico !== 0 ? (delta / teorico) * 100 : null;
       const consumoRealEuros = real * precioUnitario;
       const consumoTeoricoEuros = teorico * precioUnitario;
-      const pctSobreVentaGlobal = results.totalVentaNeta > 0 ? (consumoRealEuros / results.totalVentaNeta) * 100 : null;
+      const pctSobreVentaGlobal = ventaNetaUsada > 0 ? (consumoRealEuros / ventaNetaUsada) * 100 : null;
       const pctSobreVentaFamilia = ventaFamilia > 0 ? (consumoRealEuros / ventaFamilia) * 100 : null;
-      const pctTeoricoSobreVentaGlobal = results.totalVentaNeta > 0 ? (consumoTeoricoEuros / results.totalVentaNeta) * 100 : null;
+      const pctTeoricoSobreVentaGlobal = ventaNetaUsada > 0 ? (consumoTeoricoEuros / ventaNetaUsada) * 100 : null;
       const pctTeoricoSobreVentaFamilia = ventaFamilia > 0 ? (consumoTeoricoEuros / ventaFamilia) * 100 : null;
       return {
         real, teorico, delta, deltaPct, consumoRealEuros, pctSobreVentaGlobal, pctSobreVentaFamilia,
@@ -1788,7 +1797,7 @@ function CosteTeoricoApp() {
       gofres: compara(consumoRealGofres, results.consumoTeoricoGofres.total, PRECIO_UNITARIO.gofres, results.ventaFamiliaGofres),
       creps: compara(consumoRealCreps, results.consumoTeoricoCreps.total, PRECIO_UNITARIO.creps, results.ventaFamiliaCreps),
     };
-  }, [results, invInicial, invFinal, compras]);
+  }, [results, invInicial, invFinal, compras, ventaNetaUsada]);
 
   const handleCalcular = () => {
     if (!selectedTienda) {
@@ -2640,7 +2649,8 @@ function CosteTeoricoApp() {
             <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 22 }}>
               {[
-                ["Facturación total", fmtEUR(results.totalImporte)],
+                ["Venta neta (sin IVA)", fmtEUR(results.totalVentaNeta)],
+                ["Facturación bruta (con IVA)", fmtEUR(results.totalImporte)],
                 ["Coste teórico", fmtEUR(results.costeTotal)],
                 ["Ratio de coste medio", fmtPct(results.ratioMedio)],
                 ["Cobertura de escandallo", fmtPct(results.cobertura)],
@@ -3128,6 +3138,29 @@ function CosteTeoricoApp() {
             {costeReal ? (
               <>
                 <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Real vs. Teórico — de golpe</div>
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, background: "#FFFBF2", border: "1px solid #ECE4D6", borderRadius: 12, padding: "10px 14px", marginBottom: 10, fontSize: 13 }}>
+                  <label style={{ fontWeight: 600 }}>Venta neta del periodo (sin IVA), €</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={ventaNetaManual !== "" ? ventaNetaManual : ventaNetaArchivos.toFixed(2)}
+                    onChange={(e) => setVentaNetaManual(e.target.value)}
+                    style={{ width: 140, padding: "6px 10px", borderRadius: 8, border: ventaNetaEditada ? "1.5px solid #D97706" : "1px solid #D8CFBD", textAlign: "right", fontSize: 13, background: "white" }}
+                  />
+                  {ventaNetaEditada ? (
+                    <>
+                      <span style={{ color: "#B45309", fontSize: 12 }}>Editada (archivos: {fmtEUR(ventaNetaArchivos)})</span>
+                      <button onClick={() => setVentaNetaManual("")} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid #D8CFBD", background: "white", cursor: "pointer", fontSize: 12 }}>Restablecer</button>
+                    </>
+                  ) : (
+                    <span style={{ color: "#78716C", fontSize: 12 }}>Suma de los archivos de ventas cargados</span>
+                  )}
+                </div>
+                {ventaNetaEditada && (
+                  <div style={{ fontSize: 11.5, color: "#9CA3AF", marginBottom: 8 }}>
+                    Al editar la venta, la venta de cada familia se escala en la misma proporción, así que cambian tanto % s/ familia como % s/ global.
+                  </div>
+                )}
                 <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, overflow: "hidden", marginBottom: 10 }}>
                   <div className="il-costo-scroll" style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
