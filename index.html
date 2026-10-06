@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-20.7";
+const IL_COSTO_VERSION = "2025-09-20.8";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -1561,6 +1561,9 @@ function CosteTeoricoApp() {
     });
     rows.sort((a, b) => (b.importe || 0) - (a.importe || 0));
     const totalImporte = rows.reduce((a, r) => a + (r.importe || 0), 0);
+    // Venta NETA (base sin IVA); si una fila no trae base se usa el importe como último recurso
+    const ventaNetaFila = (r) => (r.base !== null && r.base !== undefined ? r.base : (r.importe || 0));
+    const totalVentaNeta = rows.reduce((a, r) => a + ventaNetaFila(r), 0);
     const matchedRows = rows.filter((r) => r.match);
     const importeConCoste = matchedRows.reduce((a, r) => a + r.importe, 0);
     const costeTotal = matchedRows.reduce((a, r) => a + r.coste, 0);
@@ -1595,16 +1598,16 @@ function CosteTeoricoApp() {
     // Facturación de cada "familia de materia prima" en el periodo (todos los productos que
     // llevan esa materia prima, tengan o no unidades registradas), para calcular % de consumo sobre venta.
     function familiaImporte(matchKey) {
-      return rows.filter((r) => r[matchKey] !== null && r[matchKey] !== undefined).reduce((a, r) => a + r.importe, 0);
+      return rows.filter((r) => r[matchKey] !== null && r[matchKey] !== undefined).reduce((a, r) => a + ventaNetaFila(r), 0);
     }
-    const ventaFamiliaHelado = rows.filter((r) => r.proporcionMatch).reduce((a, r) => a + r.importe, 0);
+    const ventaFamiliaHelado = rows.filter((r) => r.proporcionMatch).reduce((a, r) => a + ventaNetaFila(r), 0);
     const ventaFamiliaMacarons = familiaImporte("macaronsUd");
     const ventaFamiliaMacaronsGrandiosos = familiaImporte("macaronsGrandiososUd");
     const ventaFamiliaGofres = familiaImporte("gofresUd");
     const ventaFamiliaCreps = familiaImporte("crepsUd");
 
     return {
-      rows, totalImporte, importeConCoste, costeTotal, cobertura, ratioMedio, unmatchedCount,
+      rows, totalImporte, totalVentaNeta, importeConCoste, costeTotal, cobertura, ratioMedio, unmatchedCount,
       heladoRows: heladoConUnidades.sort((a, b) => b.gramosHeladoTotal - a.gramosHeladoTotal),
       heladoSinUnidades,
       gramosHeladoTotal, litrosHelado,
@@ -1768,9 +1771,9 @@ function CosteTeoricoApp() {
       const deltaPct = teorico !== 0 ? (delta / teorico) * 100 : null;
       const consumoRealEuros = real * precioUnitario;
       const consumoTeoricoEuros = teorico * precioUnitario;
-      const pctSobreVentaGlobal = results.totalImporte > 0 ? (consumoRealEuros / results.totalImporte) * 100 : null;
+      const pctSobreVentaGlobal = results.totalVentaNeta > 0 ? (consumoRealEuros / results.totalVentaNeta) * 100 : null;
       const pctSobreVentaFamilia = ventaFamilia > 0 ? (consumoRealEuros / ventaFamilia) * 100 : null;
-      const pctTeoricoSobreVentaGlobal = results.totalImporte > 0 ? (consumoTeoricoEuros / results.totalImporte) * 100 : null;
+      const pctTeoricoSobreVentaGlobal = results.totalVentaNeta > 0 ? (consumoTeoricoEuros / results.totalVentaNeta) * 100 : null;
       const pctTeoricoSobreVentaFamilia = ventaFamilia > 0 ? (consumoTeoricoEuros / ventaFamilia) * 100 : null;
       return {
         real, teorico, delta, deltaPct, consumoRealEuros, pctSobreVentaGlobal, pctSobreVentaFamilia,
@@ -3189,8 +3192,8 @@ function CosteTeoricoApp() {
                 </p>
                 <p style={{ fontSize: 11.5, color: "#9CA3AF", marginBottom: 6 }}>
                   <b>% s/ familia (real)</b> = (Valor inicial del stock + Valor de la compra del stock − Valor
-                  final del stock) ÷ Venta NETA de esa familia en el periodo ({fmtEUR(results.totalImporte)} es
-                  la venta neta global; cada familia tiene la suya, indicada en la sección de imputación/consumo
+                  final del stock) ÷ Venta NETA de esa familia en el periodo ({fmtEUR(results.totalVentaNeta)} es
+                  la venta neta global, sin IVA; cada familia tiene la suya, indicada en la sección de imputación/consumo
                   correspondiente). <b>% s/ global</b> usa el mismo numerador, pero dividido entre la venta NETA
                   total del periodo en vez de la de la familia. Las columnas "Teórico" repiten exactamente los
                   mismos dos cocientes pero usando el consumo teórico (el que deberían haber generado las ventas)
