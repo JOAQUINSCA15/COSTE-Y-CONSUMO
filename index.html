@@ -492,7 +492,7 @@ const HEADER_WORDS = ["producto", "articulo", "artículo", "item", "nombretienda
 
 // Sube este número cada vez que se publique un cambio, para poder comprobar a simple
 // vista (pie de página) si el navegador está sirviendo la versión desplegada más reciente.
-const IL_COSTO_VERSION = "2025-09-20.9";
+const IL_COSTO_VERSION = "2025-09-20.10";
 
 // IDs de los Google Sheets de inventario semanal de congelados, uno por tienda. Cada uno
 // debe estar compartido como "Cualquier persona con el enlace puede ver" para que la lectura
@@ -1765,7 +1765,7 @@ function CosteTeoricoApp() {
 
   const costeReal = useMemo(() => {
     if (!results || !invInicial || !invFinal) return null;
-    // Si se edita la venta neta global, la venta de cada familia se escala en la misma proporción
+    // Si se edita la venta neta global, el consumo teórico y la venta de cada familia se escalan en la misma proporción
     const factorVenta = results.totalVentaNeta > 0 ? ventaNetaUsada / results.totalVentaNeta : 1;
 
     const consumoRealLitros = invInicial.totalLitros + Number(compras.litrosHelado || 0) - invFinal.totalLitros;
@@ -1774,8 +1774,11 @@ function CosteTeoricoApp() {
     const consumoRealGofres = invInicial.gofres + Number(compras.gofres || 0) - invFinal.gofres;
     const consumoRealCreps = invInicial.creps + Number(compras.creps || 0) - invFinal.creps;
 
-    function compara(real, teorico, precioUnitario, ventaFamiliaBase) {
+    function compara(real, teoricoBase, precioUnitario, ventaFamiliaBase) {
+      // Extrapolación: si la venta neta editada difiere de la de los archivos, el consumo teórico
+      // (y la venta de la familia) se escalan en la misma proporción; el consumo real no cambia.
       const ventaFamilia = ventaFamiliaBase * factorVenta;
+      const teorico = teoricoBase * factorVenta;
       const delta = real - teorico;
       const deltaPct = teorico !== 0 ? (delta / teorico) * 100 : null;
       const consumoRealEuros = real * precioUnitario;
@@ -3158,7 +3161,7 @@ function CosteTeoricoApp() {
                 </div>
                 {ventaNetaEditada && (
                   <div style={{ fontSize: 11.5, color: "#9CA3AF", marginBottom: 8 }}>
-                    Al editar la venta, la venta de cada familia se escala en la misma proporción, así que cambian tanto % s/ familia como % s/ global.
+                    Extrapolación: con la venta editada, el consumo teórico (L, ud. y €) y la venta de cada familia se escalan proporcionalmente a {fmtPct((ventaNetaUsada / (ventaNetaArchivos || 1)) * 100)} de la venta de los archivos. El consumo real no cambia, así que la diferencia real − teórico y el % real sí se mueven; el % teórico se mantiene.
                   </div>
                 )}
                 <div style={{ background: "#FFFFFF", border: "1px solid #ECE4D6", borderRadius: 14, overflow: "hidden", marginBottom: 10 }}>
